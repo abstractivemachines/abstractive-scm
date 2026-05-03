@@ -93,7 +93,7 @@ export class ChangeItemNode extends vscode.TreeItem {
     this.contextValue = `change.${change.bucket}`;
     this.iconPath = new vscode.ThemeIcon(iconForChange(change));
     this.command = {
-      command: 'abstractiveGit.openDiff',
+      command: 'abstractiveScm.openDiff',
       title: 'Show Diff',
       arguments: [this]
     };

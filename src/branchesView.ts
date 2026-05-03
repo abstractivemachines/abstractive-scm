@@ -52,7 +52,7 @@ export class BranchItemNode extends vscode.TreeItem {
     this.contextValue = branch.remote ? 'remoteBranch' : 'branch';
     this.iconPath = new vscode.ThemeIcon(branch.current ? 'check' : 'git-branch');
     this.command = {
-      command: 'abstractiveGit.checkoutBranch',
+      command: 'abstractiveScm.checkoutBranch',
       title: 'Checkout Branch',
       arguments: [this]
     };

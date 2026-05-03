@@ -12,7 +12,7 @@ import { ChangeBucket, GitChange, GitCommit, GitCommitFile, GitResourceState } f
 import { AbstractiveScmProvider } from './scmProvider';
 import { StashesProvider, StashNode } from './stashesView';
 
-let controller: AbstractiveGitController | undefined;
+let controller: AbstractiveScmController | undefined;
 
 type ChangeArgument = ChangeItemNode | GitResourceState;
 type ChangelistArgument = ChangelistNode;
@@ -32,7 +32,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return;
   }
 
-  controller = new AbstractiveGitController(context, git);
+  controller = new AbstractiveScmController(context, git);
   context.subscriptions.push(controller);
   await controller.refresh();
 }
@@ -41,7 +41,7 @@ export function deactivate(): void {
   controller?.dispose();
 }
 
-class AbstractiveGitController implements vscode.Disposable {
+class AbstractiveScmController implements vscode.Disposable {
   private readonly scm: AbstractiveScmProvider | undefined;
   private readonly changelists: ChangelistManager;
   private readonly changes: ChangesProvider;
@@ -54,7 +54,7 @@ class AbstractiveGitController implements vscode.Disposable {
   private refreshTimer: NodeJS.Timeout | undefined;
 
   constructor(private readonly context: vscode.ExtensionContext, private readonly git: GitService) {
-    const config = vscode.workspace.getConfiguration('abstractiveGit');
+    const config = vscode.workspace.getConfiguration('abstractiveScm');
     this.scm = config.get<boolean>('enableSourceControlProvider', false) ? new AbstractiveScmProvider(git) : undefined;
     this.changelists = new ChangelistManager(context.workspaceState);
     this.changes = new ChangesProvider(git, this.changelists);
@@ -63,55 +63,55 @@ class AbstractiveGitController implements vscode.Disposable {
     this.stashes = new StashesProvider(git);
     this.toolWindow = new GitToolWindowProvider(context, git);
     this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-    this.statusBar.command = 'abstractiveGit.checkoutBranch';
+    this.statusBar.command = 'abstractiveScm.checkoutBranch';
 
     this.disposables.push(
       this.statusBar,
       vscode.workspace.registerTextDocumentContentProvider(gitContentScheme, new GitContentProvider(git)),
-      vscode.window.registerTreeDataProvider('abstractiveGit.changes', this.changes),
-      vscode.window.registerTreeDataProvider('abstractiveGit.branches', this.branches),
-      vscode.window.registerTreeDataProvider('abstractiveGit.log', this.log),
-      vscode.window.registerTreeDataProvider('abstractiveGit.stashes', this.stashes),
+      vscode.window.registerTreeDataProvider('abstractiveScm.changes', this.changes),
+      vscode.window.registerTreeDataProvider('abstractiveScm.branches', this.branches),
+      vscode.window.registerTreeDataProvider('abstractiveScm.log', this.log),
+      vscode.window.registerTreeDataProvider('abstractiveScm.stashes', this.stashes),
       vscode.window.registerWebviewViewProvider(GitToolWindowProvider.viewType, this.toolWindow),
-      vscode.commands.registerCommand('abstractiveGit.refresh', () => this.refresh()),
-      vscode.commands.registerCommand('abstractiveGit.stage', (arg?: ChangeArgument) => this.withChange(arg, (change) => this.git.stage(change.filePath))),
-      vscode.commands.registerCommand('abstractiveGit.stageGroup', (arg?: ChangeGroupArgument) => this.stageGroup(arg)),
-      vscode.commands.registerCommand('abstractiveGit.stageAll', () => this.runAndRefresh('Stage all', () => this.git.stageAll())),
-      vscode.commands.registerCommand('abstractiveGit.unstage', (arg?: ChangeArgument) => this.withChange(arg, (change) => this.git.unstage(change.filePath))),
-      vscode.commands.registerCommand('abstractiveGit.unstageGroup', (arg?: ChangeGroupArgument) => this.unstageGroup(arg)),
-      vscode.commands.registerCommand('abstractiveGit.unstageAll', () => this.runAndRefresh('Unstage all', () => this.git.unstageAll())),
-      vscode.commands.registerCommand('abstractiveGit.revert', (arg?: ChangeArgument) => this.rollback(arg)),
-      vscode.commands.registerCommand('abstractiveGit.commit', () => this.commit(false)),
-      vscode.commands.registerCommand('abstractiveGit.amendCommit', () => this.commit(true)),
-      vscode.commands.registerCommand('abstractiveGit.fetch', () => this.runAndRefresh('Fetch', () => this.git.fetch())),
-      vscode.commands.registerCommand('abstractiveGit.pullRebase', () => this.runAndRefresh('Pull with rebase', () => this.git.pullRebase())),
-      vscode.commands.registerCommand('abstractiveGit.push', () => this.runAndRefresh('Push', () => this.git.push())),
-      vscode.commands.registerCommand('abstractiveGit.checkoutBranch', (node?: BranchItemNode) => this.checkoutBranch(node)),
-      vscode.commands.registerCommand('abstractiveGit.createBranch', () => this.createBranch()),
-      vscode.commands.registerCommand('abstractiveGit.deleteBranch', (node?: BranchItemNode) => this.deleteBranch(node)),
-      vscode.commands.registerCommand('abstractiveGit.compareWithBranch', (node?: BranchItemNode) => this.compareWithBranch(node)),
-      vscode.commands.registerCommand('abstractiveGit.stashChanges', () => this.stashChanges()),
-      vscode.commands.registerCommand('abstractiveGit.applyStash', (node?: StashNode) => this.applyStash(node, false)),
-      vscode.commands.registerCommand('abstractiveGit.popStash', (node?: StashNode) => this.applyStash(node, true)),
-      vscode.commands.registerCommand('abstractiveGit.dropStash', (node?: StashNode) => this.dropStash(node)),
-      vscode.commands.registerCommand('abstractiveGit.openToolWindow', () => vscode.commands.executeCommand('workbench.view.extension.abstractiveGitPanel')),
-      vscode.commands.registerCommand('abstractiveGit.showLog', () => showLogWebview(this.context, this.git)),
-      vscode.commands.registerCommand('abstractiveGit.showCommitDetails', (node: CommitNode) => showCommitDetails(node.commit)),
-      vscode.commands.registerCommand('abstractiveGit.showCommitFiles', (node?: CommitNode) => this.showCommitFiles(node)),
-      vscode.commands.registerCommand('abstractiveGit.copyCommitHash', (node?: CommitNode) => this.copyCommitHash(node)),
-      vscode.commands.registerCommand('abstractiveGit.showFileHistory', (arg?: ChangeArgument | vscode.Uri) => this.showFileHistory(arg)),
-      vscode.commands.registerCommand('abstractiveGit.createChangelist', () => this.createChangelist()),
-      vscode.commands.registerCommand('abstractiveGit.moveToChangelist', (arg?: ChangeArgument) => this.moveToChangelist(arg)),
-      vscode.commands.registerCommand('abstractiveGit.deleteChangelist', (arg?: ChangelistArgument) => this.deleteChangelist(arg)),
-      vscode.commands.registerCommand('abstractiveGit.openDiff', (arg?: ChangeArgument) => this.openDiff(arg)),
-      vscode.commands.registerCommand('abstractiveGit.openFile', (arg?: ChangeArgument) => this.openFile(arg))
+      vscode.commands.registerCommand('abstractiveScm.refresh', () => this.refresh()),
+      vscode.commands.registerCommand('abstractiveScm.stage', (arg?: ChangeArgument) => this.withChange(arg, (change) => this.git.stage(change.filePath))),
+      vscode.commands.registerCommand('abstractiveScm.stageGroup', (arg?: ChangeGroupArgument) => this.stageGroup(arg)),
+      vscode.commands.registerCommand('abstractiveScm.stageAll', () => this.runAndRefresh('Stage all', () => this.git.stageAll())),
+      vscode.commands.registerCommand('abstractiveScm.unstage', (arg?: ChangeArgument) => this.withChange(arg, (change) => this.git.unstage(change.filePath))),
+      vscode.commands.registerCommand('abstractiveScm.unstageGroup', (arg?: ChangeGroupArgument) => this.unstageGroup(arg)),
+      vscode.commands.registerCommand('abstractiveScm.unstageAll', () => this.runAndRefresh('Unstage all', () => this.git.unstageAll())),
+      vscode.commands.registerCommand('abstractiveScm.revert', (arg?: ChangeArgument) => this.rollback(arg)),
+      vscode.commands.registerCommand('abstractiveScm.commit', () => this.commit(false)),
+      vscode.commands.registerCommand('abstractiveScm.amendCommit', () => this.commit(true)),
+      vscode.commands.registerCommand('abstractiveScm.fetch', () => this.runAndRefresh('Fetch', () => this.git.fetch())),
+      vscode.commands.registerCommand('abstractiveScm.pullRebase', () => this.runAndRefresh('Pull with rebase', () => this.git.pullRebase())),
+      vscode.commands.registerCommand('abstractiveScm.push', () => this.runAndRefresh('Push', () => this.git.push())),
+      vscode.commands.registerCommand('abstractiveScm.checkoutBranch', (node?: BranchItemNode) => this.checkoutBranch(node)),
+      vscode.commands.registerCommand('abstractiveScm.createBranch', () => this.createBranch()),
+      vscode.commands.registerCommand('abstractiveScm.deleteBranch', (node?: BranchItemNode) => this.deleteBranch(node)),
+      vscode.commands.registerCommand('abstractiveScm.compareWithBranch', (node?: BranchItemNode) => this.compareWithBranch(node)),
+      vscode.commands.registerCommand('abstractiveScm.stashChanges', () => this.stashChanges()),
+      vscode.commands.registerCommand('abstractiveScm.applyStash', (node?: StashNode) => this.applyStash(node, false)),
+      vscode.commands.registerCommand('abstractiveScm.popStash', (node?: StashNode) => this.applyStash(node, true)),
+      vscode.commands.registerCommand('abstractiveScm.dropStash', (node?: StashNode) => this.dropStash(node)),
+      vscode.commands.registerCommand('abstractiveScm.openToolWindow', () => vscode.commands.executeCommand('workbench.view.extension.abstractiveScmPanel')),
+      vscode.commands.registerCommand('abstractiveScm.showLog', () => showLogWebview(this.context, this.git)),
+      vscode.commands.registerCommand('abstractiveScm.showCommitDetails', (node: CommitNode) => showCommitDetails(node.commit)),
+      vscode.commands.registerCommand('abstractiveScm.showCommitFiles', (node?: CommitNode) => this.showCommitFiles(node)),
+      vscode.commands.registerCommand('abstractiveScm.copyCommitHash', (node?: CommitNode) => this.copyCommitHash(node)),
+      vscode.commands.registerCommand('abstractiveScm.showFileHistory', (arg?: ChangeArgument | vscode.Uri) => this.showFileHistory(arg)),
+      vscode.commands.registerCommand('abstractiveScm.createChangelist', () => this.createChangelist()),
+      vscode.commands.registerCommand('abstractiveScm.moveToChangelist', (arg?: ChangeArgument) => this.moveToChangelist(arg)),
+      vscode.commands.registerCommand('abstractiveScm.deleteChangelist', (arg?: ChangelistArgument) => this.deleteChangelist(arg)),
+      vscode.commands.registerCommand('abstractiveScm.openDiff', (arg?: ChangeArgument) => this.openDiff(arg)),
+      vscode.commands.registerCommand('abstractiveScm.openFile', (arg?: ChangeArgument) => this.openFile(arg))
     );
 
     if (this.scm) {
       this.disposables.push(this.scm);
     }
 
-    if (vscode.workspace.getConfiguration('abstractiveGit').get<boolean>('autoRefresh', true)) {
+    if (vscode.workspace.getConfiguration('abstractiveScm').get<boolean>('autoRefresh', true)) {
       const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(git.root, '**/*'));
       this.disposables.push(
         watcher,
@@ -225,7 +225,7 @@ class AbstractiveGitController implements vscode.Disposable {
       return;
     }
 
-    const signoff = vscode.workspace.getConfiguration('abstractiveGit').get<boolean>('commitSignoff', false);
+    const signoff = vscode.workspace.getConfiguration('abstractiveScm').get<boolean>('commitSignoff', false);
     await this.runAndRefresh(amend ? 'Amend commit' : 'Commit', () => this.git.commit(message, amend, signoff));
     if (this.scm) {
       this.scm.sourceControl.inputBox.value = '';
@@ -440,7 +440,7 @@ class AbstractiveGitController implements vscode.Disposable {
     }
 
     await this.handleGitErrors(async () => {
-      const limit = vscode.workspace.getConfiguration('abstractiveGit').get<number>('maxLogEntries', 75);
+      const limit = vscode.workspace.getConfiguration('abstractiveScm').get<number>('maxLogEntries', 75);
       const commits = await this.git.fileHistory(filePath, limit);
       if (commits.length === 0) {
         vscode.window.showInformationMessage(`No history found for ${filePath}.`);
@@ -595,7 +595,7 @@ class AbstractiveGitController implements vscode.Disposable {
   }
 
   private async pickCommit(title: string): Promise<GitCommit | undefined> {
-    const limit = vscode.workspace.getConfiguration('abstractiveGit').get<number>('maxLogEntries', 75);
+    const limit = vscode.workspace.getConfiguration('abstractiveScm').get<number>('maxLogEntries', 75);
     const commits = await this.git.log(limit);
     const pick = await vscode.window.showQuickPick(
       commits.map((commit) => ({
@@ -640,7 +640,7 @@ class AbstractiveGitController implements vscode.Disposable {
   private async runAndRefresh(label: string, action: () => Promise<void>): Promise<void> {
     await this.handleGitErrors(async () => {
       await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: `Abstractive Git: ${label}` },
+        { location: vscode.ProgressLocation.Notification, title: `Abstractive SCM: ${label}` },
         action
       );
       await this.refresh();
@@ -659,41 +659,41 @@ class AbstractiveGitController implements vscode.Disposable {
 
 function registerNoRepositoryCommands(context: vscode.ExtensionContext): void {
   const showMessage = (): void => {
-    vscode.window.showInformationMessage('Abstractive Git needs an open Git repository.');
+    vscode.window.showInformationMessage('Abstractive SCM needs an open Git repository.');
   };
 
   for (const command of [
-    'abstractiveGit.refresh',
-    'abstractiveGit.stage',
-    'abstractiveGit.stageGroup',
-    'abstractiveGit.stageAll',
-    'abstractiveGit.unstage',
-    'abstractiveGit.unstageGroup',
-    'abstractiveGit.unstageAll',
-    'abstractiveGit.revert',
-    'abstractiveGit.commit',
-    'abstractiveGit.amendCommit',
-    'abstractiveGit.fetch',
-    'abstractiveGit.pullRebase',
-    'abstractiveGit.push',
-    'abstractiveGit.checkoutBranch',
-    'abstractiveGit.createBranch',
-    'abstractiveGit.deleteBranch',
-    'abstractiveGit.compareWithBranch',
-    'abstractiveGit.stashChanges',
-    'abstractiveGit.applyStash',
-    'abstractiveGit.popStash',
-    'abstractiveGit.dropStash',
-    'abstractiveGit.openToolWindow',
-    'abstractiveGit.showLog',
-    'abstractiveGit.showCommitFiles',
-    'abstractiveGit.copyCommitHash',
-    'abstractiveGit.showFileHistory',
-    'abstractiveGit.createChangelist',
-    'abstractiveGit.moveToChangelist',
-    'abstractiveGit.deleteChangelist',
-    'abstractiveGit.openDiff',
-    'abstractiveGit.openFile'
+    'abstractiveScm.refresh',
+    'abstractiveScm.stage',
+    'abstractiveScm.stageGroup',
+    'abstractiveScm.stageAll',
+    'abstractiveScm.unstage',
+    'abstractiveScm.unstageGroup',
+    'abstractiveScm.unstageAll',
+    'abstractiveScm.revert',
+    'abstractiveScm.commit',
+    'abstractiveScm.amendCommit',
+    'abstractiveScm.fetch',
+    'abstractiveScm.pullRebase',
+    'abstractiveScm.push',
+    'abstractiveScm.checkoutBranch',
+    'abstractiveScm.createBranch',
+    'abstractiveScm.deleteBranch',
+    'abstractiveScm.compareWithBranch',
+    'abstractiveScm.stashChanges',
+    'abstractiveScm.applyStash',
+    'abstractiveScm.popStash',
+    'abstractiveScm.dropStash',
+    'abstractiveScm.openToolWindow',
+    'abstractiveScm.showLog',
+    'abstractiveScm.showCommitFiles',
+    'abstractiveScm.copyCommitHash',
+    'abstractiveScm.showFileHistory',
+    'abstractiveScm.createChangelist',
+    'abstractiveScm.moveToChangelist',
+    'abstractiveScm.deleteChangelist',
+    'abstractiveScm.openDiff',
+    'abstractiveScm.openFile'
   ]) {
     context.subscriptions.push(vscode.commands.registerCommand(command, showMessage));
   }

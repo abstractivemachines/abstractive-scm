@@ -5,7 +5,7 @@ import { BranchComparison, BranchComparisonCommit, BranchComparisonFile } from '
 export async function showBranchComparison(context: vscode.ExtensionContext, git: GitService, targetBranch: string): Promise<void> {
   const comparison = await git.compareWithBranch(targetBranch);
   const panel = vscode.window.createWebviewPanel(
-    'abstractiveGit.branchComparison',
+    'abstractiveScm.branchComparison',
     `Compare: ${comparison.currentBranch} and ${comparison.targetBranch}`,
     vscode.ViewColumn.Active,
     { enableScripts: false }

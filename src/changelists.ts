@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-const storageKey = 'abstractiveGit.changelists';
+const storageKey = 'abstractiveScm.changelists';
 export const defaultChangelistName = 'Default';
 
 interface ChangelistState {

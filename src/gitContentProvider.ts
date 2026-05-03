@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { GitService } from './git';
 
-export const gitContentScheme = 'abstractive-git';
+export const gitContentScheme = 'abstractive-scm';
 
 export class GitContentProvider implements vscode.TextDocumentContentProvider {
   constructor(private readonly git: GitService) {}

@@ -20,15 +20,15 @@ export class AbstractiveScmProvider implements vscode.Disposable {
   private readonly disposables: vscode.Disposable[] = [];
 
   constructor(private readonly git: GitService) {
-    this.sourceControl = vscode.scm.createSourceControl('abstractiveGit', 'Abstractive Git', git.rootUri);
+    this.sourceControl = vscode.scm.createSourceControl('abstractiveScm', 'Abstractive SCM', git.rootUri);
     this.sourceControl.inputBox.placeholder = 'Commit message';
-    this.sourceControl.acceptInputCommand = { command: 'abstractiveGit.commit', title: 'Commit' };
+    this.sourceControl.acceptInputCommand = { command: 'abstractiveScm.commit', title: 'Commit' };
 
     this.groups = {
-      conflicts: this.sourceControl.createResourceGroup('abstractiveGit.conflicts', bucketTitles.conflicts),
-      staged: this.sourceControl.createResourceGroup('abstractiveGit.staged', bucketTitles.staged),
-      unstaged: this.sourceControl.createResourceGroup('abstractiveGit.unstaged', bucketTitles.unstaged),
-      untracked: this.sourceControl.createResourceGroup('abstractiveGit.untracked', bucketTitles.untracked)
+      conflicts: this.sourceControl.createResourceGroup('abstractiveScm.conflicts', bucketTitles.conflicts),
+      staged: this.sourceControl.createResourceGroup('abstractiveScm.staged', bucketTitles.staged),
+      unstaged: this.sourceControl.createResourceGroup('abstractiveScm.unstaged', bucketTitles.unstaged),
+      untracked: this.sourceControl.createResourceGroup('abstractiveScm.untracked', bucketTitles.untracked)
     };
 
     this.disposables.push(
@@ -62,17 +62,17 @@ export class AbstractiveScmProvider implements vscode.Disposable {
     this.sourceControl.count = summary;
     this.sourceControl.statusBarCommands = [
       {
-        command: 'abstractiveGit.checkoutBranch',
+        command: 'abstractiveScm.checkoutBranch',
         title: `$(git-branch) ${branch.branch}`,
         tooltip: branch.upstream ? `${branch.branch} tracks ${branch.upstream}` : branch.branch
       },
       {
-        command: 'abstractiveGit.pullRebase',
+        command: 'abstractiveScm.pullRebase',
         title: branch.behind ? `$(arrow-down) ${branch.behind}` : '$(arrow-down) Pull',
         tooltip: 'Pull with rebase'
       },
       {
-        command: 'abstractiveGit.push',
+        command: 'abstractiveScm.push',
         title: branch.ahead ? `$(arrow-up) ${branch.ahead}` : '$(arrow-up) Push',
         tooltip: 'Push'
       }
@@ -113,7 +113,7 @@ export class AbstractiveScmProvider implements vscode.Disposable {
       bucket: change.bucket,
       contextValue: change.bucket,
       command: {
-        command: 'abstractiveGit.openDiff',
+        command: 'abstractiveScm.openDiff',
         title: 'Show Diff',
         arguments: [commandState]
       },

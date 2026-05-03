@@ -17,7 +17,7 @@ export class LogProvider implements vscode.TreeDataProvider<CommitNode> {
   }
 
   async getChildren(): Promise<CommitNode[]> {
-    const limit = vscode.workspace.getConfiguration('abstractiveGit').get<number>('maxLogEntries', 75);
+    const limit = vscode.workspace.getConfiguration('abstractiveScm').get<number>('maxLogEntries', 75);
     const commits = await this.git.log(limit);
     return commits.map((commit) => new CommitNode(commit));
   }
@@ -31,7 +31,7 @@ export class CommitNode extends vscode.TreeItem {
     this.contextValue = 'commit';
     this.iconPath = new vscode.ThemeIcon('git-commit');
     this.command = {
-      command: 'abstractiveGit.showCommitDetails',
+      command: 'abstractiveScm.showCommitDetails',
       title: 'Show Commit Details',
       arguments: [this]
     };
@@ -39,10 +39,10 @@ export class CommitNode extends vscode.TreeItem {
 }
 
 export async function showLogWebview(context: vscode.ExtensionContext, git: GitService): Promise<void> {
-  const limit = vscode.workspace.getConfiguration('abstractiveGit').get<number>('maxLogEntries', 75);
+  const limit = vscode.workspace.getConfiguration('abstractiveScm').get<number>('maxLogEntries', 75);
   const commits = await git.log(limit);
   const panel = vscode.window.createWebviewPanel(
-    'abstractiveGit.logPanel',
+    'abstractiveScm.logPanel',
     'Git Log',
     vscode.ViewColumn.Active,
     { enableScripts: false }
@@ -154,4 +154,3 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-

@@ -1,7 +1,7 @@
 {
-  "name": "abstractive-git",
-  "displayName": "Abstractive Git",
-  "description": "IntelliJ-inspired Git workflows for VS Code: richer changes, branches, log, diffs, and commit actions.",
+  "name": "abstractive-scm",
+  "displayName": "Abstractive SCM",
+  "description": "IntelliJ-inspired SCM workflows for VS Code: richer Git changes, branches, log, diffs, and commit actions.",
   "version": "0.1.0",
   "publisher": "local",
   "license": "MIT",
@@ -14,437 +14,437 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:abstractiveGit.refresh",
-    "onCommand:abstractiveGit.openToolWindow",
-    "onView:abstractiveGit.changes",
-    "onView:abstractiveGit.branches",
-    "onView:abstractiveGit.log",
-    "onView:abstractiveGit.stashes",
-    "onView:abstractiveGit.toolWindow"
+    "onCommand:abstractiveScm.refresh",
+    "onCommand:abstractiveScm.openToolWindow",
+    "onView:abstractiveScm.changes",
+    "onView:abstractiveScm.branches",
+    "onView:abstractiveScm.log",
+    "onView:abstractiveScm.stashes",
+    "onView:abstractiveScm.toolWindow"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "abstractiveGit.refresh",
+        "command": "abstractiveScm.refresh",
         "title": "Refresh",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(refresh)"
       },
       {
-        "command": "abstractiveGit.stage",
+        "command": "abstractiveScm.stage",
         "title": "Stage",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(add)"
       },
       {
-        "command": "abstractiveGit.stageAll",
+        "command": "abstractiveScm.stageAll",
         "title": "Stage All",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(check-all)"
       },
       {
-        "command": "abstractiveGit.stageGroup",
+        "command": "abstractiveScm.stageGroup",
         "title": "Stage Group",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(add)"
       },
       {
-        "command": "abstractiveGit.unstage",
+        "command": "abstractiveScm.unstage",
         "title": "Unstage",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(remove)"
       },
       {
-        "command": "abstractiveGit.unstageAll",
+        "command": "abstractiveScm.unstageAll",
         "title": "Unstage All",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(circle-slash)"
       },
       {
-        "command": "abstractiveGit.unstageGroup",
+        "command": "abstractiveScm.unstageGroup",
         "title": "Unstage Group",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(remove)"
       },
       {
-        "command": "abstractiveGit.revert",
+        "command": "abstractiveScm.revert",
         "title": "Rollback",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(discard)"
       },
       {
-        "command": "abstractiveGit.commit",
+        "command": "abstractiveScm.commit",
         "title": "Commit...",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(git-commit)"
       },
       {
-        "command": "abstractiveGit.amendCommit",
+        "command": "abstractiveScm.amendCommit",
         "title": "Amend Commit...",
-        "category": "Abstractive Git"
+        "category": "Abstractive SCM"
       },
       {
-        "command": "abstractiveGit.fetch",
+        "command": "abstractiveScm.fetch",
         "title": "Fetch",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(cloud-download)"
       },
       {
-        "command": "abstractiveGit.pullRebase",
+        "command": "abstractiveScm.pullRebase",
         "title": "Pull with Rebase",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(repo-pull)"
       },
       {
-        "command": "abstractiveGit.push",
+        "command": "abstractiveScm.push",
         "title": "Push",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(repo-push)"
       },
       {
-        "command": "abstractiveGit.checkoutBranch",
+        "command": "abstractiveScm.checkoutBranch",
         "title": "Checkout Branch...",
-        "category": "Abstractive Git"
+        "category": "Abstractive SCM"
       },
       {
-        "command": "abstractiveGit.createBranch",
+        "command": "abstractiveScm.createBranch",
         "title": "New Branch...",
-        "category": "Abstractive Git"
+        "category": "Abstractive SCM"
       },
       {
-        "command": "abstractiveGit.deleteBranch",
+        "command": "abstractiveScm.deleteBranch",
         "title": "Delete Branch...",
-        "category": "Abstractive Git"
+        "category": "Abstractive SCM"
       },
       {
-        "command": "abstractiveGit.compareWithBranch",
+        "command": "abstractiveScm.compareWithBranch",
         "title": "Compare With Current Branch",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(git-compare)"
       },
       {
-        "command": "abstractiveGit.stashChanges",
+        "command": "abstractiveScm.stashChanges",
         "title": "Shelve Changes...",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(archive)"
       },
       {
-        "command": "abstractiveGit.applyStash",
+        "command": "abstractiveScm.applyStash",
         "title": "Unshelve",
-        "category": "Abstractive Git"
+        "category": "Abstractive SCM"
       },
       {
-        "command": "abstractiveGit.popStash",
+        "command": "abstractiveScm.popStash",
         "title": "Unshelve and Remove",
-        "category": "Abstractive Git"
+        "category": "Abstractive SCM"
       },
       {
-        "command": "abstractiveGit.dropStash",
+        "command": "abstractiveScm.dropStash",
         "title": "Delete Shelf",
-        "category": "Abstractive Git"
+        "category": "Abstractive SCM"
       },
       {
-        "command": "abstractiveGit.showLog",
+        "command": "abstractiveScm.showLog",
         "title": "Show Git Log",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(git-branch)"
       },
       {
-        "command": "abstractiveGit.openToolWindow",
-        "title": "Open Git Tool Window",
-        "category": "Abstractive Git",
+        "command": "abstractiveScm.openToolWindow",
+        "title": "Open SCM Tool Window",
+        "category": "Abstractive SCM",
         "icon": "$(window)"
       },
       {
-        "command": "abstractiveGit.showCommitFiles",
+        "command": "abstractiveScm.showCommitFiles",
         "title": "Show Changed Files",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(list-tree)"
       },
       {
-        "command": "abstractiveGit.copyCommitHash",
+        "command": "abstractiveScm.copyCommitHash",
         "title": "Copy Commit Hash",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(copy)"
       },
       {
-        "command": "abstractiveGit.showFileHistory",
+        "command": "abstractiveScm.showFileHistory",
         "title": "Show File History",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(history)"
       },
       {
-        "command": "abstractiveGit.createChangelist",
+        "command": "abstractiveScm.createChangelist",
         "title": "New Changelist...",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(new-folder)"
       },
       {
-        "command": "abstractiveGit.moveToChangelist",
+        "command": "abstractiveScm.moveToChangelist",
         "title": "Move to Changelist...",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(move)"
       },
       {
-        "command": "abstractiveGit.deleteChangelist",
+        "command": "abstractiveScm.deleteChangelist",
         "title": "Delete Changelist",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(trash)"
       },
       {
-        "command": "abstractiveGit.openDiff",
+        "command": "abstractiveScm.openDiff",
         "title": "Show Diff",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(diff)"
       },
       {
-        "command": "abstractiveGit.openFile",
+        "command": "abstractiveScm.openFile",
         "title": "Open File",
-        "category": "Abstractive Git",
+        "category": "Abstractive SCM",
         "icon": "$(go-to-file)"
       }
     ],
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "abstractiveGit",
-          "title": "Abstractive Git",
+          "id": "abstractiveScm",
+          "title": "Abstractive SCM",
           "icon": "media/activity.svg"
         }
       ],
       "panel": [
         {
-          "id": "abstractiveGitPanel",
-          "title": "Git",
+          "id": "abstractiveScmPanel",
+          "title": "SCM",
           "icon": "media/activity.svg"
         }
       ]
     },
     "views": {
-      "abstractiveGit": [
+      "abstractiveScm": [
         {
-          "id": "abstractiveGit.changes",
+          "id": "abstractiveScm.changes",
           "name": "Local Changes"
         },
         {
-          "id": "abstractiveGit.branches",
+          "id": "abstractiveScm.branches",
           "name": "Branches"
         },
         {
-          "id": "abstractiveGit.log",
+          "id": "abstractiveScm.log",
           "name": "Log"
         },
         {
-          "id": "abstractiveGit.stashes",
+          "id": "abstractiveScm.stashes",
           "name": "Shelves"
         }
       ],
-      "abstractiveGitPanel": [
+      "abstractiveScmPanel": [
         {
           "type": "webview",
-          "id": "abstractiveGit.toolWindow",
-          "name": "Git"
+          "id": "abstractiveScm.toolWindow",
+          "name": "SCM"
         }
       ]
     },
     "menus": {
       "scm/title": [
         {
-          "command": "abstractiveGit.refresh",
-          "when": "scmProvider == abstractiveGit",
+          "command": "abstractiveScm.refresh",
+          "when": "scmProvider == abstractiveScm",
           "group": "navigation@1"
         },
         {
-          "command": "abstractiveGit.commit",
-          "when": "scmProvider == abstractiveGit",
+          "command": "abstractiveScm.commit",
+          "when": "scmProvider == abstractiveScm",
           "group": "navigation@2"
         },
         {
-          "command": "abstractiveGit.stageAll",
-          "when": "scmProvider == abstractiveGit",
+          "command": "abstractiveScm.stageAll",
+          "when": "scmProvider == abstractiveScm",
           "group": "navigation@2.1"
         },
         {
-          "command": "abstractiveGit.unstageAll",
-          "when": "scmProvider == abstractiveGit",
+          "command": "abstractiveScm.unstageAll",
+          "when": "scmProvider == abstractiveScm",
           "group": "navigation@2.2"
         },
         {
-          "command": "abstractiveGit.pullRebase",
-          "when": "scmProvider == abstractiveGit",
+          "command": "abstractiveScm.pullRebase",
+          "when": "scmProvider == abstractiveScm",
           "group": "navigation@3"
         },
         {
-          "command": "abstractiveGit.push",
-          "when": "scmProvider == abstractiveGit",
+          "command": "abstractiveScm.push",
+          "when": "scmProvider == abstractiveScm",
           "group": "navigation@4"
         },
         {
-          "command": "abstractiveGit.stashChanges",
-          "when": "scmProvider == abstractiveGit",
+          "command": "abstractiveScm.stashChanges",
+          "when": "scmProvider == abstractiveScm",
           "group": "navigation@5"
         }
       ],
       "scm/resourceState/context": [
         {
-          "command": "abstractiveGit.openDiff",
-          "when": "scmProvider == abstractiveGit",
+          "command": "abstractiveScm.openDiff",
+          "when": "scmProvider == abstractiveScm",
           "group": "navigation@1"
         },
         {
-          "command": "abstractiveGit.stage",
-          "when": "scmProvider == abstractiveGit && (scmResourceGroup == abstractiveGit.unstaged || scmResourceGroup == abstractiveGit.untracked || scmResourceGroup == abstractiveGit.conflicts)",
+          "command": "abstractiveScm.stage",
+          "when": "scmProvider == abstractiveScm && (scmResourceGroup == abstractiveScm.unstaged || scmResourceGroup == abstractiveScm.untracked || scmResourceGroup == abstractiveScm.conflicts)",
           "group": "inline@1"
         },
         {
-          "command": "abstractiveGit.unstage",
-          "when": "scmProvider == abstractiveGit && scmResourceGroup == abstractiveGit.staged",
+          "command": "abstractiveScm.unstage",
+          "when": "scmProvider == abstractiveScm && scmResourceGroup == abstractiveScm.staged",
           "group": "inline@1"
         },
         {
-          "command": "abstractiveGit.revert",
-          "when": "scmProvider == abstractiveGit",
+          "command": "abstractiveScm.revert",
+          "when": "scmProvider == abstractiveScm",
           "group": "inline@2"
         }
       ],
       "view/title": [
         {
-          "command": "abstractiveGit.refresh",
-          "when": "view == abstractiveGit.changes || view == abstractiveGit.branches || view == abstractiveGit.log || view == abstractiveGit.stashes",
+          "command": "abstractiveScm.refresh",
+          "when": "view == abstractiveScm.changes || view == abstractiveScm.branches || view == abstractiveScm.log || view == abstractiveScm.stashes",
           "group": "navigation@1"
         },
         {
-          "command": "abstractiveGit.stageAll",
-          "when": "view == abstractiveGit.changes",
+          "command": "abstractiveScm.stageAll",
+          "when": "view == abstractiveScm.changes",
           "group": "navigation@1.1"
         },
         {
-          "command": "abstractiveGit.unstageAll",
-          "when": "view == abstractiveGit.changes",
+          "command": "abstractiveScm.unstageAll",
+          "when": "view == abstractiveScm.changes",
           "group": "navigation@1.2"
         },
         {
-          "command": "abstractiveGit.commit",
-          "when": "view == abstractiveGit.changes",
+          "command": "abstractiveScm.commit",
+          "when": "view == abstractiveScm.changes",
           "group": "navigation@2"
         },
         {
-          "command": "abstractiveGit.createChangelist",
-          "when": "view == abstractiveGit.changes",
+          "command": "abstractiveScm.createChangelist",
+          "when": "view == abstractiveScm.changes",
           "group": "navigation@3"
         },
         {
-          "command": "abstractiveGit.stashChanges",
-          "when": "view == abstractiveGit.changes",
+          "command": "abstractiveScm.stashChanges",
+          "when": "view == abstractiveScm.changes",
           "group": "navigation@4"
         },
         {
-          "command": "abstractiveGit.createBranch",
-          "when": "view == abstractiveGit.branches",
+          "command": "abstractiveScm.createBranch",
+          "when": "view == abstractiveScm.branches",
           "group": "navigation@2"
         },
         {
-          "command": "abstractiveGit.showLog",
-          "when": "view == abstractiveGit.log",
+          "command": "abstractiveScm.showLog",
+          "when": "view == abstractiveScm.log",
           "group": "navigation@2"
         },
         {
-          "command": "abstractiveGit.stashChanges",
-          "when": "view == abstractiveGit.stashes",
+          "command": "abstractiveScm.stashChanges",
+          "when": "view == abstractiveScm.stashes",
           "group": "navigation@2"
         }
       ],
       "view/item/context": [
         {
-          "command": "abstractiveGit.deleteChangelist",
-          "when": "view == abstractiveGit.changes && viewItem == changelist.custom",
+          "command": "abstractiveScm.deleteChangelist",
+          "when": "view == abstractiveScm.changes && viewItem == changelist.custom",
           "group": "inline@1"
         },
         {
-          "command": "abstractiveGit.stageGroup",
-          "when": "view == abstractiveGit.changes && (viewItem == changesGroup.untracked || viewItem == changesGroup.unstaged || viewItem == changesGroup.conflicts)",
+          "command": "abstractiveScm.stageGroup",
+          "when": "view == abstractiveScm.changes && (viewItem == changesGroup.untracked || viewItem == changesGroup.unstaged || viewItem == changesGroup.conflicts)",
           "group": "inline@1"
         },
         {
-          "command": "abstractiveGit.unstageGroup",
-          "when": "view == abstractiveGit.changes && viewItem == changesGroup.staged",
+          "command": "abstractiveScm.unstageGroup",
+          "when": "view == abstractiveScm.changes && viewItem == changesGroup.staged",
           "group": "inline@1"
         },
         {
-          "command": "abstractiveGit.openDiff",
-          "when": "view == abstractiveGit.changes && (viewItem == change.staged || viewItem == change.unstaged || viewItem == change.untracked || viewItem == change.conflicts)",
+          "command": "abstractiveScm.openDiff",
+          "when": "view == abstractiveScm.changes && (viewItem == change.staged || viewItem == change.unstaged || viewItem == change.untracked || viewItem == change.conflicts)",
           "group": "navigation@1"
         },
         {
-          "command": "abstractiveGit.showFileHistory",
-          "when": "view == abstractiveGit.changes && (viewItem == change.staged || viewItem == change.unstaged || viewItem == change.untracked || viewItem == change.conflicts)",
+          "command": "abstractiveScm.showFileHistory",
+          "when": "view == abstractiveScm.changes && (viewItem == change.staged || viewItem == change.unstaged || viewItem == change.untracked || viewItem == change.conflicts)",
           "group": "navigation@2"
         },
         {
-          "command": "abstractiveGit.moveToChangelist",
-          "when": "view == abstractiveGit.changes && (viewItem == change.staged || viewItem == change.unstaged || viewItem == change.untracked || viewItem == change.conflicts)",
+          "command": "abstractiveScm.moveToChangelist",
+          "when": "view == abstractiveScm.changes && (viewItem == change.staged || viewItem == change.unstaged || viewItem == change.untracked || viewItem == change.conflicts)",
           "group": "navigation@3"
         },
         {
-          "command": "abstractiveGit.stage",
-          "when": "view == abstractiveGit.changes && (viewItem == change.unstaged || viewItem == change.untracked || viewItem == change.conflicts)",
+          "command": "abstractiveScm.stage",
+          "when": "view == abstractiveScm.changes && (viewItem == change.unstaged || viewItem == change.untracked || viewItem == change.conflicts)",
           "group": "inline@1"
         },
         {
-          "command": "abstractiveGit.unstage",
-          "when": "view == abstractiveGit.changes && viewItem == change.staged",
+          "command": "abstractiveScm.unstage",
+          "when": "view == abstractiveScm.changes && viewItem == change.staged",
           "group": "inline@1"
         },
         {
-          "command": "abstractiveGit.revert",
-          "when": "view == abstractiveGit.changes && (viewItem == change.staged || viewItem == change.unstaged || viewItem == change.untracked || viewItem == change.conflicts)",
+          "command": "abstractiveScm.revert",
+          "when": "view == abstractiveScm.changes && (viewItem == change.staged || viewItem == change.unstaged || viewItem == change.untracked || viewItem == change.conflicts)",
           "group": "inline@2"
         },
         {
-          "command": "abstractiveGit.checkoutBranch",
-          "when": "view == abstractiveGit.branches && (viewItem == branch || viewItem == remoteBranch)",
+          "command": "abstractiveScm.checkoutBranch",
+          "when": "view == abstractiveScm.branches && (viewItem == branch || viewItem == remoteBranch)",
           "group": "inline@1"
         },
         {
-          "command": "abstractiveGit.compareWithBranch",
-          "when": "view == abstractiveGit.branches && (viewItem == branch || viewItem == remoteBranch)",
+          "command": "abstractiveScm.compareWithBranch",
+          "when": "view == abstractiveScm.branches && (viewItem == branch || viewItem == remoteBranch)",
           "group": "inline@2"
         },
         {
-          "command": "abstractiveGit.deleteBranch",
-          "when": "view == abstractiveGit.branches && viewItem == branch",
+          "command": "abstractiveScm.deleteBranch",
+          "when": "view == abstractiveScm.branches && viewItem == branch",
           "group": "inline@3"
         },
         {
-          "command": "abstractiveGit.applyStash",
-          "when": "view == abstractiveGit.stashes && viewItem == stash",
+          "command": "abstractiveScm.applyStash",
+          "when": "view == abstractiveScm.stashes && viewItem == stash",
           "group": "inline@1"
         },
         {
-          "command": "abstractiveGit.popStash",
-          "when": "view == abstractiveGit.stashes && viewItem == stash",
+          "command": "abstractiveScm.popStash",
+          "when": "view == abstractiveScm.stashes && viewItem == stash",
           "group": "inline@2"
         },
         {
-          "command": "abstractiveGit.dropStash",
-          "when": "view == abstractiveGit.stashes && viewItem == stash",
+          "command": "abstractiveScm.dropStash",
+          "when": "view == abstractiveScm.stashes && viewItem == stash",
           "group": "inline@3"
         },
         {
-          "command": "abstractiveGit.showCommitFiles",
-          "when": "view == abstractiveGit.log && viewItem == commit",
+          "command": "abstractiveScm.showCommitFiles",
+          "when": "view == abstractiveScm.log && viewItem == commit",
           "group": "inline@1"
         },
         {
-          "command": "abstractiveGit.copyCommitHash",
-          "when": "view == abstractiveGit.log && viewItem == commit",
+          "command": "abstractiveScm.copyCommitHash",
+          "when": "view == abstractiveScm.log && viewItem == commit",
           "group": "inline@2"
         }
       ],
       "editor/context": [
         {
-          "command": "abstractiveGit.showFileHistory",
+          "command": "abstractiveScm.showFileHistory",
           "when": "resourceScheme == file",
           "group": "navigation@10"
         }
@@ -452,40 +452,40 @@
     },
     "keybindings": [
       {
-        "command": "abstractiveGit.commit",
+        "command": "abstractiveScm.commit",
         "key": "ctrl+shift+k",
         "mac": "cmd+shift+k"
       },
       {
-        "command": "abstractiveGit.refresh",
+        "command": "abstractiveScm.refresh",
         "key": "ctrl+alt+r",
         "mac": "cmd+alt+r"
       }
     ],
     "configuration": {
-      "title": "Abstractive Git",
+      "title": "Abstractive SCM",
       "properties": {
-        "abstractiveGit.autoRefresh": {
+        "abstractiveScm.autoRefresh": {
           "type": "boolean",
           "default": true,
           "description": "Refresh Git state when workspace files change."
         },
-        "abstractiveGit.commitSignoff": {
+        "abstractiveScm.commitSignoff": {
           "type": "boolean",
           "default": false,
-          "description": "Add Signed-off-by trailer to commits made from Abstractive Git."
+          "description": "Add Signed-off-by trailer to commits made from Abstractive SCM."
         },
-        "abstractiveGit.maxLogEntries": {
+        "abstractiveScm.maxLogEntries": {
           "type": "number",
           "default": 75,
           "minimum": 10,
           "maximum": 500,
           "description": "Maximum number of commits shown in the Log view."
         },
-        "abstractiveGit.enableSourceControlProvider": {
+        "abstractiveScm.enableSourceControlProvider": {
           "type": "boolean",
           "default": false,
-          "description": "Register Abstractive Git as a separate Source Control provider. This duplicates the repository beside VS Code's built-in Git provider."
+          "description": "Register Abstractive SCM as a separate Source Control provider. This duplicates the repository beside VS Code's built-in Git provider."
         }
       }
     }

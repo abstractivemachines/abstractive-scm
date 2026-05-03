@@ -237,6 +237,22 @@ export class GitService {
     return output ? parseCommitLog(output) : [];
   }
 
+  async commitDetails(hash: string): Promise<GitCommit | undefined> {
+    if (!(await this.hasCommits())) {
+      return undefined;
+    }
+
+    const output = await runGit(this.root, [
+      'show',
+      '--no-patch',
+      '--date=iso-strict',
+      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s',
+      hash
+    ]);
+
+    return parseCommitLog(output)[0];
+  }
+
   async fileHistory(filePath: string, limit: number): Promise<GitCommit[]> {
     if (!(await this.hasCommits())) {
       return [];
