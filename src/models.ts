@@ -30,10 +30,15 @@ export interface GitBranch {
 export interface GitCommit {
   hash: string;
   shortHash: string;
+  graph?: string;
   author: string;
   date: string;
   refs: string;
   subject: string;
+  parents?: string;
+  committer?: string;
+  committerDate?: string;
+  body?: string;
 }
 
 export interface GitStash {

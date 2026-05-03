@@ -211,9 +211,10 @@ export class GitService {
 
     const output = await runGit(this.root, [
       'log',
+      '--graph',
       `-n${limit}`,
       '--date=iso-strict',
-      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s'
+      '--pretty=format:%x1f%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s'
     ]);
 
     return output
@@ -228,10 +229,28 @@ export class GitService {
 
     const output = await runGit(this.root, [
       'log',
+      '--graph',
       ref,
       `-n${limit}`,
       '--date=iso-strict',
-      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s'
+      '--pretty=format:%x1f%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s'
+    ]);
+
+    return output ? parseCommitLog(output) : [];
+  }
+
+  async logRange(fromExclusive: string, toInclusive: string, limit: number): Promise<GitCommit[]> {
+    if (!(await this.hasCommits())) {
+      return [];
+    }
+
+    const output = await runGit(this.root, [
+      'log',
+      '--graph',
+      `${fromExclusive}..${toInclusive}`,
+      `-n${limit}`,
+      '--date=iso-strict',
+      '--pretty=format:%x1f%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s'
     ]);
 
     return output ? parseCommitLog(output) : [];
@@ -246,11 +265,11 @@ export class GitService {
       'show',
       '--no-patch',
       '--date=iso-strict',
-      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s',
+      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1f%P%x1f%cn%x1f%cd%x1e%B',
       hash
     ]);
 
-    return parseCommitLog(output)[0];
+    return parseCommitDetails(output);
   }
 
   async fileHistory(filePath: string, limit: number): Promise<GitCommit[]> {
@@ -279,6 +298,20 @@ export class GitService {
   async commitFilePatch(hash: string, file: GitCommitFile): Promise<string> {
     const paths = file.originalPath ? [file.originalPath, file.filePath] : [file.filePath];
     return runGit(this.root, ['show', '--format=', '--find-renames', '--patch', hash, '--', ...paths]);
+  }
+
+  async branchDiffFiles(baseBranch: string, compareBranch: string): Promise<GitCommitFile[]> {
+    const output = await runGit(this.root, ['diff', '--name-status', '-M', `${baseBranch}...${compareBranch}`]);
+    return parseNameStatus(output);
+  }
+
+  async branchFilePatch(baseBranch: string, compareBranch: string, file: GitCommitFile): Promise<string> {
+    const paths = file.originalPath ? [file.originalPath, file.filePath] : [file.filePath];
+    return runGit(this.root, ['diff', '--find-renames', '--patch', `${baseBranch}...${compareBranch}`, '--', ...paths]);
+  }
+
+  async mergeBase(leftRef: string, rightRef: string): Promise<string> {
+    return (await runGit(this.root, ['merge-base', leftRef, rightRef])).trim();
   }
 
   async fileAtRef(ref: string, filePath: string): Promise<string> {
@@ -339,18 +372,42 @@ function parseNameStatus(input: string): BranchComparisonFile[] {
 function parseCommitLog(output: string): GitCommit[] {
   return output
     .split(/\r?\n/)
-    .filter(Boolean)
+    .filter((line) => line.includes('\x1f'))
     .map((line) => {
-      const [hash, shortHash, author, date, refs, subject] = line.split('\x1f');
+      const parts = line.split('\x1f');
+      const hasGraph = parts.length > 6;
+      const [hash, shortHash, author, date, refs, subject] = hasGraph ? parts.slice(1) : parts;
       return {
         hash: hash ?? '',
         shortHash: shortHash ?? '',
+        graph: hasGraph ? parts[0] : undefined,
         author: author ?? '',
         date: date ?? '',
         refs: refs ?? '',
         subject: subject ?? ''
       };
     });
+}
+
+function parseCommitDetails(output: string): GitCommit | undefined {
+  if (!output) {
+    return undefined;
+  }
+
+  const [metadata, body = ''] = output.split('\x1e');
+  const [hash, shortHash, author, date, refs, subject, parents, committer, committerDate] = metadata.split('\x1f');
+  return {
+    hash: hash ?? '',
+    shortHash: shortHash ?? '',
+    author: author ?? '',
+    date: date ?? '',
+    refs: refs ?? '',
+    subject: subject ?? '',
+    parents: parents || undefined,
+    committer: committer || undefined,
+    committerDate: committerDate || undefined,
+    body: body.trim() || undefined
+  };
 }
 
 function parsePorcelainStatus(input: string): GitChange[] {
