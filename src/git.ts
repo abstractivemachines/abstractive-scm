@@ -122,8 +122,40 @@ export class GitService {
     await runGit(this.root, ['checkout', '-b', branch]);
   }
 
+  async createBranchAt(branch: string, ref: string): Promise<void> {
+    await runGit(this.root, ['branch', branch, ref]);
+  }
+
   async deleteBranch(branch: string, force: boolean): Promise<void> {
     await runGit(this.root, ['branch', force ? '-D' : '-d', branch]);
+  }
+
+  async renameBranch(oldName: string, newName: string): Promise<void> {
+    await runGit(this.root, ['branch', '-m', oldName, newName]);
+  }
+
+  async mergeBranch(branch: string): Promise<void> {
+    await runGit(this.root, ['merge', '--no-edit', branch]);
+  }
+
+  async rebaseOntoBranch(branch: string): Promise<void> {
+    await runGit(this.root, ['rebase', branch]);
+  }
+
+  async createTagAt(tag: string, ref: string): Promise<void> {
+    await runGit(this.root, ['tag', tag, ref]);
+  }
+
+  async cherryPickCommit(hash: string): Promise<void> {
+    await runGit(this.root, ['cherry-pick', hash]);
+  }
+
+  async revertCommit(hash: string): Promise<void> {
+    await runGit(this.root, ['revert', '--no-edit', hash]);
+  }
+
+  async checkoutCommit(hash: string): Promise<void> {
+    await runGit(this.root, ['checkout', '--detach', hash]);
   }
 
   async stashes(): Promise<GitStash[]> {
@@ -211,10 +243,9 @@ export class GitService {
 
     const output = await runGit(this.root, [
       'log',
-      '--graph',
       `-n${limit}`,
       '--date=iso-strict',
-      '--pretty=format:%x1f%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s'
+      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1f%P'
     ]);
 
     return output
@@ -229,11 +260,10 @@ export class GitService {
 
     const output = await runGit(this.root, [
       'log',
-      '--graph',
       ref,
       `-n${limit}`,
       '--date=iso-strict',
-      '--pretty=format:%x1f%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s'
+      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1f%P'
     ]);
 
     return output ? parseCommitLog(output) : [];
@@ -246,11 +276,10 @@ export class GitService {
 
     const output = await runGit(this.root, [
       'log',
-      '--graph',
       `${fromExclusive}..${toInclusive}`,
       `-n${limit}`,
       '--date=iso-strict',
-      '--pretty=format:%x1f%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s'
+      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1f%P'
     ]);
 
     return output ? parseCommitLog(output) : [];
@@ -282,7 +311,7 @@ export class GitService {
       '--follow',
       `-n${limit}`,
       '--date=iso-strict',
-      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s',
+      '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1f%P',
       '--',
       filePath
     ]);
@@ -310,6 +339,17 @@ export class GitService {
     return runGit(this.root, ['diff', '--find-renames', '--patch', `${baseBranch}...${compareBranch}`, '--', ...paths]);
   }
 
+  async localChangePatch(change: GitChange): Promise<string> {
+    const paths = change.originalPath ? [change.originalPath, change.filePath] : [change.filePath];
+    if (change.bucket === 'untracked') {
+      return this.untrackedPatch(change.filePath);
+    }
+    if (change.bucket === 'staged') {
+      return runGit(this.root, ['diff', '--cached', '--find-renames', '--patch', '--', ...paths]);
+    }
+    return runGit(this.root, ['diff', '--find-renames', '--patch', '--', ...paths]);
+  }
+
   async mergeBase(leftRef: string, rightRef: string): Promise<string> {
     return (await runGit(this.root, ['merge-base', leftRef, rightRef])).trim();
   }
@@ -321,6 +361,23 @@ export class GitService {
 
   toWorkspaceUri(filePath: string): vscode.Uri {
     return vscode.Uri.file(path.join(this.root, filePath));
+  }
+
+  private async untrackedPatch(filePath: string): Promise<string> {
+    const bytes = await vscode.workspace.fs.readFile(this.toWorkspaceUri(filePath));
+    const text = Buffer.from(bytes).toString('utf8');
+    const lines = text.split(/\r?\n/);
+    if (lines[lines.length - 1] === '') {
+      lines.pop();
+    }
+    return [
+      `diff --git a/${filePath} b/${filePath}`,
+      'new file mode 100644',
+      '--- /dev/null',
+      `+++ b/${filePath}`,
+      `@@ -0,0 +1,${lines.length} @@`,
+      ...lines.map((line) => `+${line}`)
+    ].join('\n');
   }
 
   private async hasCommits(): Promise<boolean> {
@@ -375,12 +432,13 @@ function parseCommitLog(output: string): GitCommit[] {
     .filter((line) => line.includes('\x1f'))
     .map((line) => {
       const parts = line.split('\x1f');
-      const hasGraph = parts.length > 6;
-      const [hash, shortHash, author, date, refs, subject] = hasGraph ? parts.slice(1) : parts;
+      const hasGraph = !/^[0-9a-f]{40}$/i.test(parts[0] ?? '');
+      const [hash, shortHash, author, date, refs, subject, parents] = hasGraph ? parts.slice(1) : parts;
       return {
         hash: hash ?? '',
         shortHash: shortHash ?? '',
         graph: hasGraph ? parts[0] : undefined,
+        parentHashes: (parents ?? '').split(/\s+/).filter(Boolean),
         author: author ?? '',
         date: date ?? '',
         refs: refs ?? '',

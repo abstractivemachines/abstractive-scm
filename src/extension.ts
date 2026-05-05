@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { BranchItemNode, BranchesProvider } from './branchesView';
-import { ChangelistNode, ChangeGroupNode, ChangeItemNode, ChangesProvider } from './changesView';
+import { ChangeNodeType, ChangelistNode, ChangeGroupNode, ChangeItemNode, ChangesProvider } from './changesView';
 import { ChangelistManager, defaultChangelistName } from './changelists';
 import { showBranchComparison } from './compareView';
 import { GitError, GitService } from './git';
@@ -17,6 +17,8 @@ let controller: AbstractiveScmController | undefined;
 type ChangeArgument = ChangeItemNode | GitResourceState;
 type ChangelistArgument = ChangelistNode;
 type ChangeGroupArgument = ChangeGroupNode;
+
+const sidePanelTreeViewKey = 'abstractiveScm.sidePanelTreeView';
 
 const changeBucketTitles: Record<ChangeBucket, string> = {
   conflicts: 'Conflicts',
@@ -45,6 +47,7 @@ class AbstractiveScmController implements vscode.Disposable {
   private readonly scm: AbstractiveScmProvider | undefined;
   private readonly changelists: ChangelistManager;
   private readonly changes: ChangesProvider;
+  private readonly changesTree: vscode.TreeView<ChangeNodeType>;
   private readonly branches: BranchesProvider;
   private readonly log: LogProvider;
   private readonly stashes: StashesProvider;
@@ -57,8 +60,10 @@ class AbstractiveScmController implements vscode.Disposable {
     const config = vscode.workspace.getConfiguration('abstractiveScm');
     this.scm = config.get<boolean>('enableSourceControlProvider', false) ? new AbstractiveScmProvider(git) : undefined;
     this.changelists = new ChangelistManager(context.workspaceState);
-    this.changes = new ChangesProvider(git, this.changelists);
-    this.branches = new BranchesProvider(git);
+    const sidePanelTreeView = context.workspaceState.get<boolean>(sidePanelTreeViewKey, false);
+    this.changes = new ChangesProvider(git, this.changelists, sidePanelTreeView);
+    this.changesTree = vscode.window.createTreeView('abstractiveScm.changes', { treeDataProvider: this.changes });
+    this.branches = new BranchesProvider(git, sidePanelTreeView);
     this.log = new LogProvider(git);
     this.stashes = new StashesProvider(git);
     this.toolWindow = new GitToolWindowProvider(context, git);
@@ -68,12 +73,13 @@ class AbstractiveScmController implements vscode.Disposable {
     this.disposables.push(
       this.statusBar,
       vscode.workspace.registerTextDocumentContentProvider(gitContentScheme, new GitContentProvider(git)),
-      vscode.window.registerTreeDataProvider('abstractiveScm.changes', this.changes),
+      this.changesTree,
       vscode.window.registerTreeDataProvider('abstractiveScm.branches', this.branches),
       vscode.window.registerTreeDataProvider('abstractiveScm.log', this.log),
       vscode.window.registerTreeDataProvider('abstractiveScm.stashes', this.stashes),
       vscode.window.registerWebviewViewProvider(GitToolWindowProvider.viewType, this.toolWindow),
       vscode.commands.registerCommand('abstractiveScm.refresh', () => this.refresh()),
+      vscode.commands.registerCommand('abstractiveScm.toggleTreeView', () => this.toggleTreeView()),
       vscode.commands.registerCommand('abstractiveScm.stage', (arg?: ChangeArgument) => this.withChange(arg, (change) => this.git.stage(change.filePath))),
       vscode.commands.registerCommand('abstractiveScm.stageGroup', (arg?: ChangeGroupArgument) => this.stageGroup(arg)),
       vscode.commands.registerCommand('abstractiveScm.stageAll', () => this.runAndRefresh('Stage all', () => this.git.stageAll())),
@@ -113,11 +119,16 @@ class AbstractiveScmController implements vscode.Disposable {
 
     if (vscode.workspace.getConfiguration('abstractiveScm').get<boolean>('autoRefresh', true)) {
       const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(git.root, '**/*'));
+      const gitWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(git.root, '.git/{HEAD,index,packed-refs,refs/**}'));
       this.disposables.push(
         watcher,
+        gitWatcher,
         watcher.onDidCreate(() => this.scheduleRefresh()),
         watcher.onDidChange(() => this.scheduleRefresh()),
-        watcher.onDidDelete(() => this.scheduleRefresh())
+        watcher.onDidDelete(() => this.scheduleRefresh()),
+        gitWatcher.onDidCreate(() => this.scheduleRefresh()),
+        gitWatcher.onDidChange(() => this.scheduleRefresh()),
+        gitWatcher.onDidDelete(() => this.scheduleRefresh())
       );
     }
   }
@@ -133,6 +144,9 @@ class AbstractiveScmController implements vscode.Disposable {
       const branch = await this.git.branchStatus();
       const changes = await this.git.status();
       const sync = [branch.behind ? `↓${branch.behind}` : '', branch.ahead ? `↑${branch.ahead}` : ''].filter(Boolean).join(' ');
+      this.changesTree.badge = changes.length
+        ? { value: changes.length, tooltip: `${changes.length} local change${changes.length === 1 ? '' : 's'}` }
+        : undefined;
       this.statusBar.text = `$(git-branch) ${branch.branch}${sync ? ` ${sync}` : ''}  $(diff) ${changes.length}`;
       this.statusBar.tooltip = path.basename(this.git.root);
       this.statusBar.show();
@@ -153,6 +167,14 @@ class AbstractiveScmController implements vscode.Disposable {
       clearTimeout(this.refreshTimer);
     }
     this.refreshTimer = setTimeout(() => void this.refresh(), 300);
+  }
+
+  private async toggleTreeView(): Promise<void> {
+    const next = !this.context.workspaceState.get<boolean>(sidePanelTreeViewKey, false);
+    await this.context.workspaceState.update(sidePanelTreeViewKey, next);
+    this.changes.setTreeView(next);
+    this.branches.setTreeView(next);
+    vscode.window.showInformationMessage(`Abstractive SCM side panels now use ${next ? 'tree' : 'flat'} view.`);
   }
 
   private async withChange(arg: ChangeArgument | undefined, action: (change: GitChange) => Promise<void>): Promise<void> {
@@ -664,6 +686,7 @@ function registerNoRepositoryCommands(context: vscode.ExtensionContext): void {
 
   for (const command of [
     'abstractiveScm.refresh',
+    'abstractiveScm.toggleTreeView',
     'abstractiveScm.stage',
     'abstractiveScm.stageGroup',
     'abstractiveScm.stageAll',

@@ -11,7 +11,7 @@ export async function showBranchComparison(context: vscode.ExtensionContext, git
     { enableScripts: false }
   );
 
-  panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'activity.svg');
+  panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'activity-graph.svg');
   panel.webview.html = renderComparisonHtml(comparison);
 }
 
@@ -165,4 +165,3 @@ function escapeHtml(value: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 }
-

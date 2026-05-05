@@ -15,6 +15,7 @@
   "activationEvents": [
     "onStartupFinished",
     "onCommand:abstractiveScm.refresh",
+    "onCommand:abstractiveScm.toggleTreeView",
     "onCommand:abstractiveScm.openToolWindow",
     "onView:abstractiveScm.changes",
     "onView:abstractiveScm.branches",
@@ -30,6 +31,12 @@
         "title": "Refresh",
         "category": "Abstractive SCM",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "abstractiveScm.toggleTreeView",
+        "title": "Toggle Tree/Flat View",
+        "category": "Abstractive SCM",
+        "icon": "$(list-tree)"
       },
       {
         "command": "abstractiveScm.stage",
@@ -210,14 +217,14 @@
         {
           "id": "abstractiveScm",
           "title": "Abstractive SCM",
-          "icon": "media/activity.svg"
+          "icon": "media/activity-graph.svg"
         }
       ],
       "panel": [
         {
           "id": "abstractiveScmPanel",
           "title": "SCM",
-          "icon": "media/activity.svg"
+          "icon": "media/activity-graph.svg"
         }
       ]
     },
@@ -313,6 +320,11 @@
           "command": "abstractiveScm.refresh",
           "when": "view == abstractiveScm.changes || view == abstractiveScm.branches || view == abstractiveScm.log || view == abstractiveScm.stashes",
           "group": "navigation@1"
+        },
+        {
+          "command": "abstractiveScm.toggleTreeView",
+          "when": "view == abstractiveScm.changes || view == abstractiveScm.branches",
+          "group": "navigation@1.05"
         },
         {
           "command": "abstractiveScm.stageAll",

@@ -31,6 +31,7 @@ export interface GitCommit {
   hash: string;
   shortHash: string;
   graph?: string;
+  parentHashes?: string[];
   author: string;
   date: string;
   refs: string;

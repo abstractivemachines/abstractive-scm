@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import { GitService } from './git';
 import { gitContentUri } from './gitContentProvider';
-import { GitCommit, GitCommitFile } from './models';
+import { changeLabel, GitChange, GitCommit, GitCommitFile } from './models';
 
-type ToolWindowMode = 'log' | 'outgoing' | 'incoming' | 'files';
+type ToolWindowMode = 'log' | 'outgoing' | 'incoming' | 'files' | 'changes';
 
 type WebviewMessage =
   | { type: 'ready' }
@@ -12,11 +12,30 @@ type WebviewMessage =
   | { type: 'setMode'; mode: ToolWindowMode }
   | { type: 'selectBranch'; branch: string }
   | { type: 'checkoutBranch'; branch: string; remote: boolean }
+  | { type: 'createBranch' }
+  | { type: 'deleteBranch'; branch: string; remote: boolean }
+  | { type: 'renameBranch'; branch: string; remote: boolean }
+  | { type: 'mergeBranch'; branch: string }
+  | { type: 'rebaseOntoBranch'; branch: string }
+  | { type: 'compareBranch'; branch: string }
   | { type: 'selectCommit'; hash: string }
   | { type: 'copyCommitHash'; hash: string }
+  | { type: 'cherryPickCommit'; hash: string }
+  | { type: 'revertCommit'; hash: string }
+  | { type: 'createBranchFromCommit'; hash: string }
+  | { type: 'createTagFromCommit'; hash: string }
+  | { type: 'checkoutCommit'; hash: string }
   | { type: 'selectFile'; hash: string; file: GitCommitFile }
   | { type: 'selectCompareFile'; file: GitCommitFile }
-  | { type: 'openWorkingFile'; file: GitCommitFile }
+  | { type: 'selectLocalChange'; change: GitChange }
+  | { type: 'stageLocalChange'; change: GitChange }
+  | { type: 'unstageLocalChange'; change: GitChange }
+  | { type: 'stageAllLocalChanges' }
+  | { type: 'commitLocalChanges' }
+  | { type: 'shelveLocalChanges' }
+  | { type: 'unshelveChanges' }
+  | { type: 'openLocalChangeDiff'; change: GitChange }
+  | { type: 'openWorkingFile'; file: GitCommitFile | GitChange }
   | { type: 'openFileAtRevision'; hash: string; file: GitCommitFile }
   | { type: 'openCompareFileAtRevision'; file: GitCommitFile }
   | { type: 'openCompareFileDiff'; file: GitCommitFile }
@@ -69,17 +88,74 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       case 'checkoutBranch':
         await this.checkoutBranch(message.branch, message.remote);
         break;
+      case 'createBranch':
+        await this.createBranch();
+        break;
+      case 'deleteBranch':
+        await this.deleteBranch(message.branch, message.remote);
+        break;
+      case 'renameBranch':
+        await this.renameBranch(message.branch, message.remote);
+        break;
+      case 'mergeBranch':
+        await this.mergeBranch(message.branch);
+        break;
+      case 'rebaseOntoBranch':
+        await this.rebaseOntoBranch(message.branch);
+        break;
+      case 'compareBranch':
+        await this.openBranchComparison(message.branch);
+        break;
       case 'selectCommit':
         await this.loadCommit(message.hash);
         break;
       case 'copyCommitHash':
         await this.copyCommitHash(message.hash);
         break;
+      case 'cherryPickCommit':
+        await this.cherryPickCommit(message.hash);
+        break;
+      case 'revertCommit':
+        await this.revertCommit(message.hash);
+        break;
+      case 'createBranchFromCommit':
+        await this.createBranchFromCommit(message.hash);
+        break;
+      case 'createTagFromCommit':
+        await this.createTagFromCommit(message.hash);
+        break;
+      case 'checkoutCommit':
+        await this.checkoutCommit(message.hash);
+        break;
       case 'selectFile':
         await this.loadFilePatch(message.hash, message.file);
         break;
       case 'selectCompareFile':
         await this.loadCompareFilePatch(message.file);
+        break;
+      case 'selectLocalChange':
+        await this.loadLocalChangePatch(message.change);
+        break;
+      case 'stageLocalChange':
+        await this.stageLocalChange(message.change);
+        break;
+      case 'unstageLocalChange':
+        await this.unstageLocalChange(message.change);
+        break;
+      case 'stageAllLocalChanges':
+        await this.stageAllLocalChanges();
+        break;
+      case 'commitLocalChanges':
+        await this.commitLocalChanges();
+        break;
+      case 'shelveLocalChanges':
+        await this.shelveLocalChanges();
+        break;
+      case 'unshelveChanges':
+        await this.unshelveChanges();
+        break;
+      case 'openLocalChangeDiff':
+        await this.openLocalChangeDiff(message.change);
         break;
       case 'openWorkingFile':
         await this.openWorkingFile(message.file);
@@ -129,6 +205,10 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
   }
 
   private async loadBranchModeData(branch: string): Promise<void> {
+    if (this.mode === 'changes') {
+      await this.loadLocalChanges();
+      return;
+    }
     if (this.mode === 'files') {
       await this.loadCompareFiles(branch);
       return;
@@ -147,9 +227,7 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       if (commit) {
         this.post({ type: 'commitDetails', commit });
       }
-      if (files[0]) {
-        await this.loadFilePatch(hash, files[0]);
-      } else {
+      if (!files[0]) {
         this.post({ type: 'patch', selectedFile: undefined, patch: '' });
       }
     });
@@ -174,9 +252,7 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       compareBranch: this.compareBranch,
       files
     });
-    if (files[0]) {
-      await this.loadCompareFilePatch(files[0]);
-    } else {
+    if (!files[0]) {
       this.post({ type: 'patch', selectedFile: undefined, patch: '' });
     }
   }
@@ -185,6 +261,21 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
     await this.withErrorBoundary(async () => {
       const patch = await this.git.branchFilePatch(this.compareBaseBranch, this.compareBranch, file);
       this.post({ type: 'patch', selectedFile: file.filePath, patch });
+    });
+  }
+
+  private async loadLocalChanges(): Promise<void> {
+    const changes = await this.git.status();
+    this.post({ type: 'localChanges', mode: this.mode, files: changes });
+    if (!changes[0]) {
+      this.post({ type: 'patch', selectedFile: undefined, patch: '' });
+    }
+  }
+
+  private async loadLocalChangePatch(change: GitChange): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const patch = await this.git.localChangePatch(change);
+      this.post({ type: 'patch', selectedFile: localChangeKey(change), patch });
     });
   }
 
@@ -201,10 +292,343 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  private async createBranch(): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const branch = await vscode.window.showInputBox({
+        title: 'New Branch',
+        prompt: 'Branch name',
+        ignoreFocusOut: true,
+        validateInput: (value) => (/^\S+$/.test(value) ? undefined : 'Branch name cannot contain spaces')
+      });
+      if (!branch) {
+        return;
+      }
+
+      await this.git.createBranch(branch);
+      this.selectedBranch = undefined;
+      await this.loadInitial();
+      vscode.window.showInformationMessage(`Created and checked out ${branch}`);
+    });
+  }
+
+  private async deleteBranch(branch: string, remote: boolean): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      if (remote) {
+        vscode.window.showWarningMessage('Remote branch deletion is not supported from the bottom SCM panel yet.');
+        return;
+      }
+
+      const answer = await vscode.window.showWarningMessage(`Delete local branch ${branch}?`, { modal: true }, 'Delete', 'Force Delete');
+      if (!answer) {
+        return;
+      }
+
+      await this.git.deleteBranch(branch, answer === 'Force Delete');
+      this.selectedBranch = undefined;
+      await this.loadInitial();
+      vscode.window.showInformationMessage(`Deleted branch ${branch}`);
+    });
+  }
+
+  private async renameBranch(branch: string, remote: boolean): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      if (remote) {
+        vscode.window.showWarningMessage('Remote branch rename is not supported from the bottom SCM panel.');
+        return;
+      }
+
+      const newName = await vscode.window.showInputBox({
+        title: `Rename Branch ${branch}`,
+        prompt: 'New branch name',
+        value: branch,
+        ignoreFocusOut: true,
+        validateInput: (value) => (/^\S+$/.test(value) ? undefined : 'Branch name cannot contain spaces')
+      });
+      if (!newName || newName === branch) {
+        return;
+      }
+
+      await this.git.renameBranch(branch, newName);
+      if (this.selectedBranch === branch) {
+        this.selectedBranch = newName;
+      }
+      await this.loadInitial();
+      vscode.window.showInformationMessage(`Renamed ${branch} to ${newName}`);
+    });
+  }
+
+  private async mergeBranch(branch: string): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const answer = await vscode.window.showWarningMessage(
+        `Merge ${branch} into ${this.currentBranch}?`,
+        { modal: true },
+        'Merge'
+      );
+      if (answer !== 'Merge') {
+        return;
+      }
+
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Abstractive SCM: Merge ${branch}` },
+        () => this.git.mergeBranch(branch)
+      );
+      await this.loadInitial();
+      vscode.window.showInformationMessage(`Merged ${branch} into ${this.currentBranch}`);
+    });
+  }
+
+  private async rebaseOntoBranch(branch: string): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const answer = await vscode.window.showWarningMessage(
+        `Rebase ${this.currentBranch} onto ${branch}?`,
+        { modal: true },
+        'Rebase'
+      );
+      if (answer !== 'Rebase') {
+        return;
+      }
+
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Abstractive SCM: Rebase onto ${branch}` },
+        () => this.git.rebaseOntoBranch(branch)
+      );
+      await this.loadInitial();
+      vscode.window.showInformationMessage(`Rebased ${this.currentBranch} onto ${branch}`);
+    });
+  }
+
+  private async openBranchComparison(branch: string): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      this.mode = 'files';
+      this.selectedBranch = branch;
+      await this.loadBranchModeData(branch);
+    });
+  }
+
+  private async stageLocalChange(change: GitChange): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      await this.git.stage(change.filePath);
+      await this.loadLocalChanges();
+    });
+  }
+
+  private async unstageLocalChange(change: GitChange): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      await this.git.unstage(change.filePath);
+      await this.loadLocalChanges();
+    });
+  }
+
+  private async stageAllLocalChanges(): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      await this.git.stageAll();
+      await this.loadLocalChanges();
+    });
+  }
+
+  private async commitLocalChanges(): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const message = await vscode.window.showInputBox({
+        title: 'Commit Local Changes',
+        prompt: 'Commit message',
+        ignoreFocusOut: true,
+        validateInput: (value) => (value.trim() ? undefined : 'Commit message is required')
+      });
+      if (!message) {
+        return;
+      }
+
+      const signoff = vscode.workspace.getConfiguration('abstractiveScm').get<boolean>('commitSignoff', false);
+      await this.git.commit(message, false, signoff);
+      await this.loadInitial();
+      vscode.window.showInformationMessage('Committed local changes');
+    });
+  }
+
+  private async shelveLocalChanges(): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const changes = await this.git.status();
+      if (!changes.length) {
+        vscode.window.showInformationMessage('There are no local changes to shelve.');
+        return;
+      }
+
+      const message = await vscode.window.showInputBox({
+        title: 'Shelve Changes',
+        prompt: 'Shelf name',
+        value: `WIP on ${this.currentBranch}`,
+        ignoreFocusOut: true,
+        validateInput: (value) => (value.trim() ? undefined : 'Shelf name is required')
+      });
+      if (!message) {
+        return;
+      }
+
+      const includeUntracked = changes.some((change) => change.bucket === 'untracked')
+        ? (await vscode.window.showQuickPick(
+            [
+              { label: 'Include untracked files', include: true },
+              { label: 'Tracked files only', include: false }
+            ],
+            { title: 'Shelve Changes' }
+          ))?.include ?? false
+        : false;
+      await this.git.stashPush(message, includeUntracked);
+      await this.loadLocalChanges();
+      vscode.window.showInformationMessage(`Shelved changes: ${message}`);
+    });
+  }
+
+  private async unshelveChanges(): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const stashes = await this.git.stashes();
+      if (!stashes.length) {
+        vscode.window.showInformationMessage('There are no shelves to apply.');
+        return;
+      }
+
+      const pick = await vscode.window.showQuickPick(
+        stashes.map((stash) => ({
+          label: stash.ref,
+          description: stash.age,
+          detail: stash.message,
+          stash
+        })),
+        { title: 'Unshelve Changes', placeHolder: 'Select a shelf' }
+      );
+      if (!pick) {
+        return;
+      }
+
+      const remove = await vscode.window.showQuickPick(
+        [
+          { label: 'Apply and keep shelf', remove: false },
+          { label: 'Apply and remove shelf', remove: true }
+        ],
+        { title: `Unshelve ${pick.stash.ref}` }
+      );
+      if (!remove) {
+        return;
+      }
+
+      if (remove.remove) {
+        await this.git.stashPop(pick.stash.ref);
+      } else {
+        await this.git.stashApply(pick.stash.ref);
+      }
+      await this.loadLocalChanges();
+      vscode.window.showInformationMessage(`Unshelved ${pick.stash.ref}`);
+    });
+  }
+
   private async copyCommitHash(hash: string): Promise<void> {
     const commit = await this.git.commitDetails(hash);
     await vscode.env.clipboard.writeText(commit?.hash ?? hash);
     vscode.window.showInformationMessage(`Copied ${commit?.shortHash ?? hash.slice(0, 7)}`);
+  }
+
+  private async cherryPickCommit(hash: string): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const commit = await this.git.commitDetails(hash);
+      const label = commit?.shortHash ?? hash.slice(0, 7);
+      const answer = await vscode.window.showWarningMessage(
+        `Cherry-pick commit ${label} onto ${this.currentBranch}?`,
+        { modal: true },
+        'Cherry-pick'
+      );
+      if (answer !== 'Cherry-pick') {
+        return;
+      }
+
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Abstractive SCM: Cherry-pick ${label}` },
+        () => this.git.cherryPickCommit(hash)
+      );
+      await this.loadInitial();
+      vscode.window.showInformationMessage(`Cherry-picked ${label}`);
+    });
+  }
+
+  private async revertCommit(hash: string): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const commit = await this.git.commitDetails(hash);
+      const label = commit?.shortHash ?? hash.slice(0, 7);
+      const answer = await vscode.window.showWarningMessage(
+        `Revert commit ${label} with a new commit on ${this.currentBranch}?`,
+        { modal: true },
+        'Revert'
+      );
+      if (answer !== 'Revert') {
+        return;
+      }
+
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: `Abstractive SCM: Revert ${label}` },
+        () => this.git.revertCommit(hash)
+      );
+      await this.loadInitial();
+      vscode.window.showInformationMessage(`Reverted ${label}`);
+    });
+  }
+
+  private async createBranchFromCommit(hash: string): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const commit = await this.git.commitDetails(hash);
+      const label = commit?.shortHash ?? hash.slice(0, 7);
+      const branch = await vscode.window.showInputBox({
+        title: `New Branch from ${label}`,
+        prompt: 'Branch name',
+        ignoreFocusOut: true,
+        validateInput: (value) => (/^\S+$/.test(value) ? undefined : 'Branch name cannot contain spaces')
+      });
+      if (!branch) {
+        return;
+      }
+
+      await this.git.createBranchAt(branch, hash);
+      await this.loadInitial();
+      vscode.window.showInformationMessage(`Created branch ${branch} at ${label}`);
+    });
+  }
+
+  private async createTagFromCommit(hash: string): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const commit = await this.git.commitDetails(hash);
+      const label = commit?.shortHash ?? hash.slice(0, 7);
+      const tag = await vscode.window.showInputBox({
+        title: `New Tag from ${label}`,
+        prompt: 'Tag name',
+        ignoreFocusOut: true,
+        validateInput: (value) => (/^\S+$/.test(value) ? undefined : 'Tag name cannot contain spaces')
+      });
+      if (!tag) {
+        return;
+      }
+
+      await this.git.createTagAt(tag, hash);
+      await this.loadInitial();
+      vscode.window.showInformationMessage(`Created tag ${tag} at ${label}`);
+    });
+  }
+
+  private async checkoutCommit(hash: string): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const commit = await this.git.commitDetails(hash);
+      const label = commit?.shortHash ?? hash.slice(0, 7);
+      const answer = await vscode.window.showWarningMessage(
+        `Checkout commit ${label} in detached HEAD state?`,
+        { modal: true },
+        'Checkout'
+      );
+      if (answer !== 'Checkout') {
+        return;
+      }
+
+      await this.git.checkoutCommit(hash);
+      this.selectedBranch = undefined;
+      await this.loadInitial();
+      vscode.window.showInformationMessage(`Checked out ${label}`);
+    });
   }
 
   private async openFileAtRevision(hash: string, file: GitCommitFile): Promise<void> {
@@ -221,7 +645,7 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  private async openWorkingFile(file: GitCommitFile): Promise<void> {
+  private async openWorkingFile(file: GitCommitFile | GitChange): Promise<void> {
     await this.withErrorBoundary(async () => {
       const uri = this.git.toWorkspaceUri(file.filePath);
       try {
@@ -244,6 +668,18 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       const left = file.status.startsWith('A') ? gitContentUri('empty', file.filePath) : gitContentUri(parentRef, leftPath);
       const right = file.status.startsWith('D') ? gitContentUri('empty', file.filePath) : gitContentUri(hash, file.filePath);
       await vscode.commands.executeCommand('vscode.diff', left, right, `${file.filePath} (${commit?.shortHash ?? hash.slice(0, 7)})`);
+    });
+  }
+
+  private async openLocalChangeDiff(change: GitChange): Promise<void> {
+    await this.withErrorBoundary(async () => {
+      const title = `${change.filePath} (${changeLabel(change)})`;
+      const right = change.bucket === 'staged' ? gitContentUri('index', change.filePath) : this.git.toWorkspaceUri(change.filePath);
+      const left =
+        change.bucket === 'untracked' || change.x === 'A'
+          ? gitContentUri('empty', change.filePath)
+          : gitContentUri('HEAD', change.originalPath ?? change.filePath);
+      await vscode.commands.executeCommand('vscode.diff', left, right, title);
     });
   }
 
@@ -327,6 +763,13 @@ function renderHtml(webview: vscode.Webview): string {
       color-scheme: light dark;
       font-family: var(--vscode-font-family);
       font-size: var(--vscode-font-size);
+      --scm-pane-accent: var(--vscode-list-focusOutline, var(--vscode-focusBorder));
+      --scm-active-header-background: var(--vscode-list-inactiveSelectionBackground, var(--vscode-sideBar-background));
+      --scm-active-header-foreground: var(--vscode-list-inactiveSelectionForeground, var(--vscode-foreground));
+      --scm-inactive-selection-background: var(--vscode-list-inactiveSelectionBackground, transparent);
+      --scm-inactive-selection-foreground: var(--vscode-list-inactiveSelectionForeground, var(--vscode-editor-foreground));
+      --scm-active-selection-background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground, transparent));
+      --scm-active-selection-foreground: var(--vscode-list-activeSelectionForeground, var(--vscode-editor-foreground));
     }
     * {
       box-sizing: border-box;
@@ -408,15 +851,24 @@ function renderHtml(webview: vscode.Webview): string {
       height: 100%;
     }
     .pane {
+      position: relative;
       min-width: 0;
       min-height: 0;
       overflow: hidden;
       border-right: 1px solid var(--vscode-sideBar-border);
       display: grid;
       grid-template-rows: 28px minmax(0, 1fr);
+      background: var(--vscode-editor-background);
+      transition: background-color 80ms ease-out;
     }
     .pane:last-child {
       border-right: 0;
+    }
+    .commit-pane {
+      grid-template-rows: 28px auto minmax(0, 1fr);
+    }
+    .pane.active-pane {
+      box-shadow: inset 0 2px 0 var(--scm-pane-accent), inset 0 0 0 1px var(--scm-pane-accent);
     }
     .pane-divider {
       width: 0;
@@ -444,19 +896,37 @@ function renderHtml(webview: vscode.Webview): string {
     }
     .pane-divider:hover::after,
     .pane-divider.dragging::after {
-      background: var(--vscode-focusBorder);
+      background: var(--scm-pane-accent);
     }
     .pane-title {
+      position: relative;
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 0 10px;
+      padding: 0 10px 0 14px;
       color: var(--vscode-sideBarTitle-foreground);
       background: var(--vscode-sideBar-background);
       border-bottom: 1px solid var(--vscode-sideBar-border);
       font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
+    }
+    .pane-title::before {
+      content: "";
+      position: absolute;
+      left: 6px;
+      width: 3px;
+      height: 14px;
+      border-radius: 2px;
+      background: transparent;
+    }
+    .pane.active-pane .pane-title {
+      color: var(--scm-active-header-foreground);
+      background: var(--scm-active-header-background);
+      border-bottom-color: var(--scm-pane-accent);
+    }
+    .pane.active-pane .pane-title::before {
+      background: var(--scm-pane-accent);
     }
     .pane-title input {
       width: 100%;
@@ -495,17 +965,34 @@ function renderHtml(webview: vscode.Webview): string {
     }
     .commit-title {
       display: grid;
-      grid-template-columns: auto auto auto auto auto minmax(90px, 1fr);
+      grid-template-columns: auto auto auto auto auto auto minmax(90px, 1fr);
     }
     .diff-title {
       display: grid;
-      grid-template-columns: minmax(92px, 1fr) auto auto auto auto;
+      grid-template-columns: minmax(92px, 1fr) auto auto auto auto auto auto;
     }
     .list,
     .grid,
     .diff {
       overflow: auto;
       min-height: 0;
+    }
+    .list {
+      position: relative;
+    }
+    .list.loading-files .row {
+      opacity: 0.58;
+    }
+    .list.loading-files::after {
+      content: "Loading files...";
+      position: sticky;
+      bottom: 0;
+      display: block;
+      padding: 5px 10px;
+      color: var(--vscode-descriptionForeground);
+      background: var(--vscode-sideBar-background);
+      border-top: 1px solid var(--vscode-sideBar-border);
+      font-size: 11px;
     }
     .diff-stack {
       display: grid;
@@ -525,22 +1012,33 @@ function renderHtml(webview: vscode.Webview): string {
       cursor: pointer;
     }
     .row:hover {
-      background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--vscode-editor-foreground) 8%, transparent));
+      background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--vscode-editor-foreground) 6%, transparent));
     }
     .row.selected {
-      color: var(--vscode-list-activeSelectionForeground, var(--vscode-editor-foreground));
-      background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground, color-mix(in srgb, var(--vscode-focusBorder) 22%, transparent)));
-      box-shadow: inset 3px 0 0 var(--vscode-focusBorder);
+      color: var(--scm-inactive-selection-foreground);
+      background: var(--scm-inactive-selection-background);
+      box-shadow: inset 3px 0 0 var(--scm-pane-accent);
     }
     .row.focused {
-      outline: 0;
-      box-shadow: inset 0 0 0 1px var(--vscode-focusBorder);
+      outline: 1px solid var(--scm-pane-accent);
+      outline-offset: -1px;
     }
     .row.selected.focused {
-      box-shadow: inset 3px 0 0 var(--vscode-focusBorder), inset 0 0 0 1px var(--vscode-focusBorder);
+      box-shadow: inset 4px 0 0 var(--scm-pane-accent);
     }
     .row.selected:hover {
-      background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground, color-mix(in srgb, var(--vscode-focusBorder) 28%, transparent)));
+      background: var(--scm-inactive-selection-background);
+    }
+    .pane.active-pane .row:hover:not(.selected) {
+      background: var(--vscode-list-hoverBackground, transparent);
+    }
+    .pane.active-pane .row.selected {
+      color: var(--scm-active-selection-foreground);
+      background: var(--scm-active-selection-background);
+      box-shadow: inset 4px 0 0 var(--scm-pane-accent);
+    }
+    .pane.active-pane .row.selected:hover {
+      background: var(--scm-active-selection-background);
     }
     .primary,
     .secondary {
@@ -583,6 +1081,44 @@ function renderHtml(webview: vscode.Webview): string {
       font-weight: 600;
       text-transform: uppercase;
     }
+    .pane.active-pane .commit-header {
+      color: var(--scm-active-header-foreground);
+      background: var(--scm-active-header-background);
+    }
+    .commit-summary {
+      min-width: 0;
+      height: 50px;
+      padding: 7px 10px;
+      overflow: hidden;
+      border-bottom: 1px solid var(--vscode-sideBar-border);
+      background: var(--vscode-editor-background);
+    }
+    .commit-summary[hidden] {
+      display: none;
+    }
+    .commit-summary-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+    .commit-summary-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 12px;
+      margin-top: 3px;
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+      max-height: 16px;
+      overflow: hidden;
+    }
+    .commit-summary-meta span {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .commit-column {
       position: relative;
       min-width: 0;
@@ -613,47 +1149,44 @@ function renderHtml(webview: vscode.Webview): string {
       background: var(--vscode-focusBorder);
     }
     .graph {
-      color: var(--vscode-gitDecoration-addedResourceForeground);
-      font-family: var(--vscode-editor-font-family);
-      font-size: 12px;
-      line-height: 1;
       min-width: 0;
       overflow: hidden;
       text-align: left;
-      white-space: pre;
     }
-    .graph-visual {
-      position: relative;
-      width: 28px;
+    .graph-lanes {
+      display: block;
+      width: max-content;
+      min-width: 28px;
       height: 24px;
+      overflow: visible;
     }
-    .graph-visual::before {
-      content: "";
-      position: absolute;
-      top: var(--graph-line-top, 0);
-      bottom: var(--graph-line-bottom, 0);
-      left: 13px;
-      width: 2px;
-      background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 68%, transparent);
-      border-radius: 1px;
+    .graph-line {
+      stroke-width: 2;
+      stroke-linecap: round;
+      opacity: 0.76;
     }
     .graph-node {
-      position: absolute;
-      top: 50%;
-      left: 9px;
-      width: 10px;
-      height: 10px;
-      border: 2px solid var(--vscode-gitDecoration-addedResourceForeground);
-      border-radius: 50%;
-      background: var(--vscode-editor-background);
-      transform: translateY(-50%);
+      fill: var(--vscode-editor-background);
+      stroke-width: 2.2;
     }
-    .row.selected .graph-node {
-      background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground));
+    .graph-node-inner {
+      fill: currentColor;
+      opacity: 0;
     }
-    .graph-text {
-      font-family: var(--vscode-editor-font-family);
-      white-space: pre;
+    .commit-row:hover .graph-line,
+    .commit-row.selected .graph-line {
+      opacity: 1;
+      stroke-width: 2.4;
+    }
+    .commit-row:hover .graph-node,
+    .commit-row.selected .graph-node {
+      stroke-width: 3;
+    }
+    .commit-row.selected .graph-node {
+      fill: color-mix(in srgb, currentColor 16%, var(--vscode-editor-background));
+    }
+    .commit-row.selected .graph-node-inner {
+      opacity: 1;
     }
     .author,
     .date,
@@ -673,10 +1206,76 @@ function renderHtml(webview: vscode.Webview): string {
       color: inherit;
       opacity: 0.82;
     }
-    .branch-kind,
-    .status {
+    .subject-line {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .subject-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ref-labels {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      min-width: 0;
+      flex: 0 1 auto;
+      overflow: hidden;
+    }
+    .ref-label {
+      max-width: 120px;
+      padding: 0 5px;
+      color: var(--vscode-badge-foreground);
+      background: var(--vscode-badge-background);
+      border-radius: 3px;
+      font-size: 10px;
+      font-weight: 600;
+      line-height: 16px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-transform: none;
+    }
+    .ref-label.remote {
+      color: var(--vscode-gitDecoration-modifiedResourceForeground);
+      background: color-mix(in srgb, var(--vscode-gitDecoration-modifiedResourceForeground) 18%, transparent);
+    }
+    .ref-label.tag {
+      color: var(--vscode-gitDecoration-addedResourceForeground);
+      background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 18%, transparent);
+    }
+    .ref-label.head {
+      color: var(--vscode-editor-background);
+      background: var(--vscode-focusBorder);
+    }
+    .branch-kind {
       color: var(--vscode-descriptionForeground);
       font-size: 11px;
+    }
+    .status {
+      justify-self: end;
+      min-width: 18px;
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+      font-weight: 600;
+      text-align: right;
+    }
+    .status.added {
+      color: var(--vscode-gitDecoration-addedResourceForeground);
+    }
+    .status.modified {
+      color: var(--vscode-gitDecoration-modifiedResourceForeground);
+    }
+    .status.deleted {
+      color: var(--vscode-gitDecoration-deletedResourceForeground);
+    }
+    .status.renamed {
+      color: var(--vscode-gitDecoration-renamedResourceForeground, var(--vscode-gitDecoration-modifiedResourceForeground));
     }
     .hash {
       color: var(--vscode-gitDecoration-modifiedResourceForeground);
@@ -684,8 +1283,42 @@ function renderHtml(webview: vscode.Webview): string {
       font-size: 12px;
     }
     .file-row {
-      grid-template-columns: 46px minmax(0, 1fr);
-      align-items: start;
+      grid-template-columns: 24px minmax(0, 1fr) auto;
+      align-items: center;
+      column-gap: 8px;
+    }
+    .file-icon {
+      justify-self: center;
+      width: 22px;
+      overflow: hidden;
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .file-icon.type-ts,
+    .file-icon.type-js,
+    .file-icon.type-jsx,
+    .file-icon.type-tsx {
+      color: var(--vscode-charts-blue);
+    }
+    .file-icon.type-json {
+      color: var(--vscode-charts-yellow);
+    }
+    .file-icon.type-md,
+    .file-icon.type-mdx {
+      color: var(--vscode-gitDecoration-modifiedResourceForeground);
+    }
+    .file-icon.type-css,
+    .file-icon.type-scss,
+    .file-icon.type-less {
+      color: var(--vscode-charts-purple);
+    }
+    .file-icon.type-html,
+    .file-icon.type-svg {
+      color: var(--vscode-charts-orange);
     }
     .empty {
       padding: 12px 10px;
@@ -719,7 +1352,7 @@ function renderHtml(webview: vscode.Webview): string {
     }
     .details-row {
       display: grid;
-      grid-template-columns: 72px minmax(0, 1fr);
+      grid-template-columns: 86px minmax(0, 1fr);
       column-gap: 8px;
       line-height: 1.45;
       font-size: 12px;
@@ -755,6 +1388,8 @@ function renderHtml(webview: vscode.Webview): string {
     .line.hunk {
       color: var(--vscode-gitDecoration-modifiedResourceForeground);
       background: var(--vscode-editor-lineHighlightBackground);
+      cursor: pointer;
+      user-select: none;
     }
     .line.current-hunk {
       outline: 1px solid var(--vscode-focusBorder);
@@ -763,6 +1398,50 @@ function renderHtml(webview: vscode.Webview): string {
     }
     .line.meta {
       color: var(--vscode-descriptionForeground);
+    }
+    .word-change {
+      border-radius: 2px;
+      background: color-mix(in srgb, currentColor 26%, transparent);
+    }
+    .diff-stats {
+      align-self: center;
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: none;
+      white-space: nowrap;
+    }
+    .diff-side {
+      min-width: max-content;
+      padding: 8px 0;
+      font-family: var(--vscode-editor-font-family);
+      font-size: var(--vscode-editor-font-size);
+      line-height: 1.45;
+    }
+    .diff-side-row {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
+    }
+    .diff-side-row.meta,
+    .diff-side-row.hunk {
+      display: block;
+    }
+    .diff-cell {
+      min-height: 1.45em;
+      padding: 0 12px;
+      white-space: pre;
+      border-right: 1px solid var(--vscode-sideBar-border);
+    }
+    .diff-cell:last-child {
+      border-right: 0;
+    }
+    .diff-cell.add {
+      color: var(--vscode-gitDecoration-addedResourceForeground);
+      background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 12%, transparent);
+    }
+    .diff-cell.del {
+      color: var(--vscode-gitDecoration-deletedResourceForeground);
+      background: color-mix(in srgb, var(--vscode-gitDecoration-deletedResourceForeground) 12%, transparent);
     }
     .error {
       color: var(--vscode-errorForeground);
@@ -801,6 +1480,64 @@ function renderHtml(webview: vscode.Webview): string {
       color: var(--vscode-menu-selectionForeground);
       background: var(--vscode-menu-selectionBackground);
     }
+    .help-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.36);
+    }
+    .help-overlay.open {
+      display: flex;
+    }
+    .help-dialog {
+      width: min(620px, 100%);
+      max-height: min(680px, 100%);
+      overflow: auto;
+      color: var(--vscode-editor-foreground);
+      background: var(--vscode-editor-background);
+      border: 1px solid var(--vscode-sideBar-border);
+      box-shadow: 0 10px 34px rgba(0, 0, 0, 0.34);
+    }
+    .help-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--vscode-sideBar-border);
+      font-weight: 600;
+    }
+    .help-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px 18px;
+      padding: 12px;
+    }
+    .help-row {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .key {
+      display: inline-block;
+      min-width: 24px;
+      padding: 1px 6px;
+      color: var(--vscode-editor-foreground);
+      background: var(--vscode-keybindingLabel-background);
+      border: 1px solid var(--vscode-keybindingLabel-border, var(--vscode-sideBar-border));
+      border-bottom-color: var(--vscode-keybindingLabel-bottomBorder, var(--vscode-sideBar-border));
+      border-radius: 3px;
+      font-family: var(--vscode-editor-font-family);
+      font-size: 11px;
+      text-align: center;
+      white-space: nowrap;
+    }
     @media (max-width: 980px) {
       .layout {
         grid-template-columns: var(--pane-columns, 150px 420px 220px 360px);
@@ -829,6 +1566,9 @@ function renderHtml(webview: vscode.Webview): string {
       .toolbar-actions {
         width: 100%;
       }
+      .help-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
     }
   </style>
 </head>
@@ -842,16 +1582,24 @@ function renderHtml(webview: vscode.Webview): string {
       </div>
       <div class="toolbar-actions">
         <button id="checkoutBranch" title="Checkout selected branch (b)">Checkout</button>
+        <button id="branchActions" title="Show branch actions">Branch</button>
         <button id="copyHash" title="Copy selected commit hash (y)">Hash</button>
+        <button id="commitActions" title="Show selected commit actions">Actions</button>
         <button id="openFile" title="Open selected file at this revision (p)">Revision</button>
         <button id="openWorkingFile" title="Open selected working tree file (w)">Worktree</button>
         <button id="openDiff" title="Open selected file diff (o)">Diff</button>
+        <button id="stageChange" title="Stage selected local change">Stage</button>
+        <button id="unstageChange" title="Unstage selected local change">Unstage</button>
+        <button id="commitChanges" title="Commit staged changes">Commit</button>
+        <button id="shelveChanges" title="Shelve local changes">Shelve</button>
+        <button id="unshelveChanges" title="Unshelve saved changes">Unshelve</button>
+        <button id="showHelp" title="Show keyboard shortcuts (F1)">Keys</button>
         <button id="resetLayout" title="Reset panel layout">Reset</button>
         <button id="refresh" title="Refresh">Refresh</button>
       </div>
     </div>
     <main class="layout">
-      <section class="pane">
+      <section class="pane" data-pane="branches">
         <div class="pane-title branch-title">
           <span>Branches</span>
           <input id="branchSearch" type="search" aria-label="Search branches" placeholder="Search">
@@ -862,19 +1610,21 @@ function renderHtml(webview: vscode.Webview): string {
         <div class="list" id="branches" role="listbox" aria-label="Branches"></div>
       </section>
       <div class="pane-divider" data-divider="0" role="separator" aria-orientation="vertical" title="Resize panes"></div>
-      <section class="pane">
+      <section class="pane commit-pane" data-pane="commits">
         <div class="pane-title commit-title">
           <span>Commits</span>
           <button data-mode="log" title="Show selected branch log">Log</button>
           <button data-mode="outgoing" title="Show current branch commits not in selected branch">Out</button>
           <button data-mode="incoming" title="Show selected branch commits not in current branch">In</button>
           <button data-mode="files" title="Show aggregate changed files between current and selected branch">Files</button>
+          <button data-mode="changes" title="Show local working tree changes">Local</button>
           <input id="commitSearch" type="search" aria-label="Search commits" placeholder="Search">
         </div>
+        <div class="commit-summary" id="commitSummary" hidden></div>
         <div class="grid" id="commits" role="grid" aria-label="Commits"></div>
       </section>
       <div class="pane-divider" data-divider="1" role="separator" aria-orientation="vertical" title="Resize panes"></div>
-      <section class="pane">
+      <section class="pane" data-pane="files">
         <div class="pane-title file-title">
           <span>Files</span>
           <input id="fileSearch" type="search" aria-label="Search changed files" placeholder="Search">
@@ -887,40 +1637,72 @@ function renderHtml(webview: vscode.Webview): string {
         <div class="list" id="files" role="listbox" aria-label="Changed files"></div>
       </section>
       <div class="pane-divider" data-divider="2" role="separator" aria-orientation="vertical" title="Resize panes"></div>
-      <section class="pane diff-pane">
+      <section class="pane diff-pane" data-pane="diff">
         <div class="pane-title diff-title">
           <span>Diff Preview</span>
+          <span class="diff-stats" id="diffStats"></span>
+          <button id="toggleDiffView" title="Toggle side-by-side diff preview">Side</button>
           <button id="prevFile" title="Previous file ([)">File &lt;</button>
           <button id="nextFile" title="Next file (])">File &gt;</button>
           <button id="prevHunk" title="Previous hunk (,)" disabled>Hunk &lt;</button>
           <button id="nextHunk" title="Next hunk (.)" disabled>Hunk &gt;</button>
         </div>
         <div class="diff-stack">
-          <div class="diff" id="diff"></div>
-          <div class="details" id="commitDetails"></div>
+          <div class="diff" id="diff" tabindex="-1"></div>
+          <div class="details" id="selectionDetails"></div>
         </div>
       </section>
     </main>
   </div>
   <div class="context-menu" id="contextMenu" role="menu"></div>
+  <div class="help-overlay" id="helpOverlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="help-dialog">
+      <div class="help-header">
+        <span id="helpTitle">Keyboard Shortcuts</span>
+        <button id="closeHelp" title="Close keyboard shortcuts">Close</button>
+      </div>
+      <div class="help-grid">
+        <div class="help-row"><span><span class="key">j</span> <span class="key">k</span></span><span>Move selection up or down</span></div>
+        <div class="help-row"><span><span class="key">h</span> <span class="key">l</span></span><span>Move between panes</span></div>
+        <div class="help-row"><span class="key">Enter</span><span>Activate selected row</span></div>
+        <div class="help-row"><span class="key">/</span><span>Search commits</span></div>
+        <div class="help-row"><span class="key">?</span><span>Search branches</span></div>
+        <div class="help-row"><span class="key">f</span><span>Search files</span></div>
+        <div class="help-row"><span class="key">o</span><span>Open native diff</span></div>
+        <div class="help-row"><span class="key">p</span><span>Open revision or worktree file</span></div>
+        <div class="help-row"><span class="key">w</span><span>Open working tree file</span></div>
+        <div class="help-row"><span class="key">y</span><span>Copy selected commit hash</span></div>
+        <div class="help-row"><span class="key">b</span><span>Checkout selected branch</span></div>
+        <div class="help-row"><span><span class="key">[</span> <span class="key">]</span></span><span>Previous or next file</span></div>
+        <div class="help-row"><span><span class="key">,</span> <span class="key">.</span></span><span>Previous or next hunk</span></div>
+        <div class="help-row"><span class="key">Esc</span><span>Clear search or close menus</span></div>
+      </div>
+    </div>
+  </div>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const persistedState = vscode.getState() || {};
     const state = {
       branches: [],
       currentBranch: '',
-      selectedBranch: '',
+      selectedBranch: persistedState.selectedBranch || '',
       mode: persistedState.mode || 'log',
       compareBaseBranch: '',
       compareBranch: '',
       commits: [],
-      selectedCommit: '',
+      selectedCommit: persistedState.selectedCommit || '',
       files: [],
-      selectedFile: '',
+      selectedFile: persistedState.selectedFile || '',
       selectedCommitDetails: undefined,
       patch: '',
+      diffView: persistedState.diffView || 'unified',
+      collapsedHunks: [],
       error: '',
       loading: false,
+      filesLoading: false,
+      filesLoadingVisible: false,
+      filesLoadingTimer: undefined,
+      pendingFilesCommit: '',
       contextMenuType: '',
       currentHunkIndex: -1,
       activePane: persistedState.activePane || 'commits',
@@ -930,8 +1712,8 @@ function renderHtml(webview: vscode.Webview): string {
       fileSearch: persistedState.fileSearch || '',
       fileFilter: persistedState.fileFilter || 'all',
       paneColumns: validWidths(persistedState.paneColumns, [180, 560, 280, 520], 4),
-      commitColumns: validWidths(persistedState.commitColumns, [56, 74, 120, 142, 360], 5)
-        .map((width, index) => Math.max(width, [46, 54, 72, 92, 160][index] || 80))
+      commitColumns: validWidths(persistedState.commitColumns, [86, 74, 120, 142, 360], 5)
+        .map((width, index) => Math.max(width, [54, 54, 72, 92, 160][index] || 80))
     };
 
     const layoutEl = document.querySelector('.layout');
@@ -939,7 +1721,9 @@ function renderHtml(webview: vscode.Webview): string {
     const commitsEl = document.getElementById('commits');
     const filesEl = document.getElementById('files');
     const diffEl = document.getElementById('diff');
-    const detailsEl = document.getElementById('commitDetails');
+    const diffStatsEl = document.getElementById('diffStats');
+    const detailsEl = document.getElementById('selectionDetails');
+    const commitSummaryEl = document.getElementById('commitSummary');
     const branchSearchEl = document.getElementById('branchSearch');
     const commitSearchEl = document.getElementById('commitSearch');
     const fileSearchEl = document.getElementById('fileSearch');
@@ -947,19 +1731,34 @@ function renderHtml(webview: vscode.Webview): string {
     const loadingEl = document.getElementById('loading');
     const errorEl = document.getElementById('error');
     const contextMenuEl = document.getElementById('contextMenu');
+    const helpOverlayEl = document.getElementById('helpOverlay');
+    const paneEls = Array.from(document.querySelectorAll('[data-pane]'));
 
     document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
     document.getElementById('checkoutBranch').addEventListener('click', checkoutSelectedBranch);
+    document.getElementById('branchActions').addEventListener('click', showSelectedBranchActions);
     document.getElementById('copyHash').addEventListener('click', copySelectedCommitHash);
+    document.getElementById('commitActions').addEventListener('click', showSelectedCommitActions);
     document.getElementById('openFile').addEventListener('click', openSelectedFileAtRevision);
     document.getElementById('openWorkingFile').addEventListener('click', openSelectedWorkingFile);
     document.getElementById('openDiff').addEventListener('click', openSelectedFileDiff);
+    document.getElementById('stageChange').addEventListener('click', stageSelectedChange);
+    document.getElementById('unstageChange').addEventListener('click', unstageSelectedChange);
+    document.getElementById('commitChanges').addEventListener('click', commitLocalChanges);
+    document.getElementById('shelveChanges').addEventListener('click', shelveLocalChanges);
+    document.getElementById('unshelveChanges').addEventListener('click', unshelveChanges);
+    document.getElementById('showHelp').addEventListener('click', showHelp);
+    document.getElementById('closeHelp').addEventListener('click', hideHelp);
     document.getElementById('resetLayout').addEventListener('click', () => vscode.postMessage({ type: 'resetLayout' }));
+    document.getElementById('toggleDiffView').addEventListener('click', toggleDiffView);
     document.getElementById('prevFile').addEventListener('click', () => navigateFile(-1));
     document.getElementById('nextFile').addEventListener('click', () => navigateFile(1));
     document.getElementById('prevHunk').addEventListener('click', () => navigateHunk(-1));
     document.getElementById('nextHunk').addEventListener('click', () => navigateHunk(1));
     contextMenuEl.addEventListener('click', handleContextMenuClick);
+    helpOverlayEl.addEventListener('click', (event) => {
+      if (event.target === helpOverlayEl) hideHelp();
+    });
     document.addEventListener('click', hideContextMenu);
     document.addEventListener('scroll', hideContextMenu, true);
     branchSearchEl.value = state.branchSearch;
@@ -1007,6 +1806,10 @@ function renderHtml(webview: vscode.Webview): string {
       });
     });
     document.addEventListener('keydown', handleKeydown);
+    paneEls.forEach((pane) => {
+      pane.addEventListener('focusin', () => setActivePane(pane.dataset.pane || state.activePane, false));
+      pane.addEventListener('pointerdown', () => setActivePane(pane.dataset.pane || state.activePane, false));
+    });
     document.querySelectorAll('.pane-divider').forEach((divider) => {
       divider.addEventListener('pointerdown', (event) => startPaneResize(event, Number(divider.dataset.divider), divider));
     });
@@ -1017,7 +1820,10 @@ function renderHtml(webview: vscode.Webview): string {
       if (message.type === 'init') {
         state.branches = message.branches || [];
         state.currentBranch = message.currentBranch || '';
-        state.selectedBranch = message.selectedBranch || '';
+        const restoredBranch = state.selectedBranch && state.branches.some((branch) => branch.name === state.selectedBranch)
+          ? state.selectedBranch
+          : '';
+        state.selectedBranch = restoredBranch || message.selectedBranch || '';
         state.mode = message.mode || state.mode || 'log';
         state.commits = message.commits || [];
         state.files = [];
@@ -1025,25 +1831,43 @@ function renderHtml(webview: vscode.Webview): string {
         state.compareBranch = '';
         state.selectedCommitDetails = undefined;
         state.patch = '';
+        setFilesLoading(false);
+        state.collapsedHunks = [];
         state.error = '';
         render();
+        if (restoredBranch && restoredBranch !== message.selectedBranch) {
+          vscode.postMessage({ type: 'selectBranch', branch: restoredBranch });
+        }
       }
       if (message.type === 'branchData') {
+        if (state.selectedBranch && message.selectedBranch && message.selectedBranch !== state.selectedBranch) {
+          return;
+        }
         state.selectedBranch = message.selectedBranch || '';
         state.mode = message.mode || state.mode || 'log';
         state.commits = message.commits || [];
         state.files = [];
         state.compareBaseBranch = '';
         state.compareBranch = '';
-        state.selectedCommit = '';
+        const restoredCommit = state.selectedCommit && state.commits.some((commit) => commit.hash === state.selectedCommit)
+          ? state.selectedCommit
+          : '';
+        state.selectedCommit = restoredCommit;
         state.selectedFile = '';
         state.selectedCommitDetails = undefined;
         state.patch = '';
+        setFilesLoading(false);
         state.error = '';
         render();
         focusSelected();
+        if (restoredCommit) {
+          vscode.postMessage({ type: 'selectCommit', hash: restoredCommit });
+        }
       }
       if (message.type === 'compareFiles') {
+        if (state.selectedBranch && message.selectedBranch && message.selectedBranch !== state.selectedBranch) {
+          return;
+        }
         state.selectedBranch = message.selectedBranch || '';
         state.mode = message.mode || 'files';
         state.compareBaseBranch = message.baseBranch || '';
@@ -1051,35 +1875,87 @@ function renderHtml(webview: vscode.Webview): string {
         state.commits = [];
         state.files = message.files || [];
         state.selectedCommit = '';
-        state.selectedFile = '';
+        const restoredFile = state.selectedFile && state.files.some((file) => fileKey(file) === state.selectedFile)
+          ? state.selectedFile
+          : '';
+        state.selectedFile = restoredFile;
         state.selectedCommitDetails = undefined;
         state.patch = '';
+        setFilesLoading(false);
         state.currentHunkIndex = -1;
+        state.collapsedHunks = [];
         state.error = '';
         render();
         focusSelected();
+        if (restoredFile) {
+          const file = state.files.find((item) => fileKey(item) === restoredFile);
+          if (file) vscode.postMessage({ type: 'selectCompareFile', file });
+        }
+      }
+      if (message.type === 'localChanges') {
+        state.mode = message.mode || 'changes';
+        state.commits = [];
+        state.files = message.files || [];
+        state.selectedCommit = '';
+        const restoredFile = state.selectedFile && state.files.some((file) => fileKey(file) === state.selectedFile)
+          ? state.selectedFile
+          : '';
+        state.selectedFile = restoredFile;
+        state.selectedCommitDetails = undefined;
+        state.patch = '';
+        setFilesLoading(false);
+        state.currentHunkIndex = -1;
+        state.collapsedHunks = [];
+        state.error = '';
+        render();
+        focusSelected();
+        if (restoredFile) {
+          const change = state.files.find((item) => fileKey(item) === restoredFile);
+          if (change) vscode.postMessage({ type: 'selectLocalChange', change });
+        }
       }
       if (message.type === 'commitFiles') {
+        if (state.selectedCommit && message.selectedCommit && message.selectedCommit !== state.selectedCommit) {
+          return;
+        }
         state.selectedCommit = message.selectedCommit || '';
         state.files = message.files || [];
-        state.selectedFile = '';
+        setFilesLoading(false);
+        const restoredFile = state.selectedFile && state.files.some((file) => fileKey(file) === state.selectedFile)
+          ? state.selectedFile
+          : '';
+        state.selectedFile = restoredFile;
         state.patch = '';
         state.currentHunkIndex = -1;
+        state.collapsedHunks = [];
         state.error = '';
         render();
         focusSelected();
+        if (restoredFile && state.selectedCommit) {
+          const file = state.files.find((item) => fileKey(item) === restoredFile);
+          if (file) vscode.postMessage({ type: 'selectFile', hash: state.selectedCommit, file });
+        }
       }
       if (message.type === 'patch') {
+        if (state.selectedFile && message.selectedFile && message.selectedFile !== state.selectedFile) {
+          return;
+        }
         state.selectedFile = message.selectedFile || '';
         state.patch = message.patch || '';
         state.currentHunkIndex = -1;
+        state.collapsedHunks = [];
         state.error = '';
         renderDiff();
         renderFiles();
+        renderDetails();
         focusSelected();
       }
       if (message.type === 'commitDetails') {
+        if (message.commit?.hash && state.selectedCommit && message.commit.hash !== state.selectedCommit) {
+          return;
+        }
         state.selectedCommitDetails = message.commit;
+        renderCommitSummary();
         renderDetails();
       }
       if (message.type === 'notice') {
@@ -1101,6 +1977,7 @@ function renderHtml(webview: vscode.Webview): string {
 
     function render() {
       renderChrome();
+      renderCommitSummary();
       renderBranches();
       renderCommits();
       renderFiles();
@@ -1109,15 +1986,29 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function renderChrome() {
+      renderActivePane();
       titleEl.textContent = state.selectedBranch ? 'SCM: ' + state.selectedBranch : 'SCM';
       loadingEl.textContent = state.loading ? 'Loading...' : '';
       errorEl.textContent = state.error || '';
       const branch = selectedBranch();
+      const commit = selectedCommit();
       document.getElementById('checkoutBranch').disabled = !branch || branch.current;
-      document.getElementById('copyHash').disabled = !selectedCommit();
-      document.getElementById('openFile').disabled = !selectedFile();
-      document.getElementById('openWorkingFile').disabled = !selectedFile();
-      document.getElementById('openDiff').disabled = !selectedFile();
+      document.getElementById('branchActions').disabled = false;
+      document.getElementById('copyHash').disabled = !commit;
+      document.getElementById('commitActions').disabled = !commit;
+      const file = selectedFile();
+      const localChange = selectedLocalChange();
+      document.getElementById('openFile').disabled = !file || state.mode === 'changes';
+      document.getElementById('openWorkingFile').disabled = !file || (state.mode === 'changes' && localChange?.bucket === 'staged');
+      document.getElementById('openDiff').disabled = !file;
+      document.getElementById('stageChange').disabled = state.mode !== 'changes' || !localChange || localChange.bucket === 'staged';
+      document.getElementById('unstageChange').disabled = state.mode !== 'changes' || !localChange || localChange.bucket !== 'staged';
+      document.getElementById('commitChanges').disabled = state.mode !== 'changes' || !state.files.some((item) => item.bucket === 'staged');
+      document.getElementById('shelveChanges').disabled = state.mode !== 'changes' || !state.files.length;
+      document.getElementById('unshelveChanges').disabled = state.mode !== 'changes';
+      const diffViewButton = document.getElementById('toggleDiffView');
+      diffViewButton.textContent = state.diffView === 'side' ? 'Unified' : 'Side';
+      diffViewButton.classList.toggle('active', state.diffView === 'side');
       updateDiffNavigation();
       document.querySelectorAll('[data-branch-filter]').forEach((button) => {
         button.classList.toggle('active', button.dataset.branchFilter === state.branchFilter);
@@ -1128,6 +2019,48 @@ function renderHtml(webview: vscode.Webview): string {
       document.querySelectorAll('[data-file-filter]').forEach((button) => {
         button.classList.toggle('active', button.dataset.fileFilter === state.fileFilter);
       });
+    }
+
+    function renderActivePane() {
+      paneEls.forEach((pane) => {
+        const active = pane.dataset.pane === state.activePane;
+        pane.classList.toggle('active-pane', active);
+        pane.setAttribute('aria-current', active ? 'true' : 'false');
+      });
+    }
+
+    function renderCommitSummary() {
+      if (state.mode === 'files' || state.mode === 'changes') {
+        commitSummaryEl.hidden = true;
+        commitSummaryEl.innerHTML = '';
+        return;
+      }
+
+      const commit = commitSummarySource();
+      if (!commit) {
+        commitSummaryEl.hidden = true;
+        commitSummaryEl.innerHTML = '';
+        return;
+      }
+
+      const parents = commit.parents || (Array.isArray(commit.parentHashes) ? commit.parentHashes.join(' ') : '');
+      const meta = [
+        '<span title="' + escapeHtml(commit.hash) + '">' + escapeHtml(commit.shortHash || commit.hash.slice(0, 12)) + '</span>',
+        '<span>' + escapeHtml(commit.author + ' - ' + formatDate(commit.date)) + '</span>',
+        parents ? '<span title="' + escapeHtml(parents) + '">' + escapeHtml('Parents ' + shortParents(parents)) + '</span>' : '',
+        '<span>' + escapeHtml(state.files.length ? fileSummary(state.files) : 'Loading files...') + '</span>'
+      ].filter(Boolean);
+      commitSummaryEl.hidden = false;
+      commitSummaryEl.innerHTML =
+        '<div class="commit-summary-title" title="' + escapeHtml(commit.subject) + '">' + escapeHtml(commit.subject) + '</div>' +
+        '<div class="commit-summary-meta">' + meta.join('') + '</div>';
+    }
+
+    function commitSummarySource() {
+      if (state.selectedCommitDetails?.hash === state.selectedCommit) {
+        return state.selectedCommitDetails;
+      }
+      return selectedCommit();
     }
 
     function renderBranches() {
@@ -1146,7 +2079,7 @@ function renderHtml(webview: vscode.Webview): string {
         row.title = branch.subject || branch.name;
         row.innerHTML = '<div class="primary">' + escapeHtml(branch.current ? branch.name + ' *' : branch.name) + '</div>' +
           '<div class="branch-kind">' + escapeHtml(branch.remote ? 'remote' : 'local') + '</div>';
-        row.addEventListener('focus', () => state.activePane = 'branches');
+        row.addEventListener('focus', () => setActivePane('branches', false));
         row.addEventListener('click', () => selectBranch(branch.name));
         row.addEventListener('dblclick', () => checkoutSelectedBranch());
         row.addEventListener('contextmenu', (event) => {
@@ -1158,6 +2091,10 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function renderCommits() {
+      if (state.mode === 'changes') {
+        commitsEl.innerHTML = '<div class="empty">' + escapeHtml(localChangesSummary()) + '</div>';
+        return;
+      }
       if (state.mode === 'files') {
         const label = state.compareBaseBranch && state.compareBranch
           ? 'Changed files: ' + state.compareBaseBranch + '...' + state.compareBranch
@@ -1185,18 +2122,20 @@ function renderHtml(webview: vscode.Webview): string {
         commitHeaderCell('Date', 3, 'date-col'),
         commitHeaderCell('Subject', 4)
       );
+      const graphRows = buildGraphRows(commits);
       commitsEl.replaceChildren(header, ...commits.map((commit, index) => {
         const selected = commit.hash === state.selectedCommit;
         const row = selectableRow('commit-row row' + rowState('commits', selected), 'row', selected);
         applyCommitColumns(row);
         row.setAttribute('aria-rowindex', String(index + 2));
         row.title = commit.hash + '\\n' + commit.author;
-        row.innerHTML = '<div class="graph" role="gridcell" aria-label="Commit graph">' + renderGraph(commit.graph, index, commits.length) + '</div>' +
+        row.innerHTML = '<div class="graph" role="gridcell" aria-label="Commit graph">' + renderGraph(graphRows.get(commit.hash), selected) + '</div>' +
           '<div class="hash" role="gridcell">' + escapeHtml(commit.shortHash) + '</div>' +
           '<div class="author" role="gridcell">' + escapeHtml(commit.author) + '</div>' +
           '<div class="date" role="gridcell">' + escapeHtml(formatDate(commit.date)) + '</div>' +
-          '<div class="subject" role="gridcell">' + escapeHtml(commit.subject) + '</div>';
-        row.addEventListener('focus', () => state.activePane = 'commits');
+          '<div class="subject" role="gridcell"><div class="subject-line">' + renderRefLabels(commit.refs) +
+          '<span class="subject-text">' + escapeHtml(commit.subject) + '</span></div></div>';
+        row.addEventListener('focus', () => setActivePane('commits', false));
         row.addEventListener('click', () => selectCommit(commit.hash));
         row.addEventListener('contextmenu', (event) => {
           selectCommit(commit.hash);
@@ -1207,9 +2146,10 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function renderFiles() {
+      filesEl.classList.toggle('loading-files', state.filesLoadingVisible);
       const files = filteredFiles();
       if (!state.files.length) {
-        filesEl.innerHTML = '<div class="empty">No files.</div>';
+        filesEl.innerHTML = '<div class="empty">' + escapeHtml(state.filesLoadingVisible ? 'Loading files...' : 'No files.') + '</div>';
         return;
       }
       if (!files.length) {
@@ -1217,13 +2157,14 @@ function renderHtml(webview: vscode.Webview): string {
         return;
       }
       filesEl.replaceChildren(...files.map((file) => {
-        const selected = file.filePath === state.selectedFile;
+        const selected = fileKey(file) === state.selectedFile;
         const row = selectableRow('file-row row' + rowState('files', selected), 'option', selected);
         row.title = file.originalPath ? file.originalPath + ' -> ' + file.filePath : file.filePath;
-        row.innerHTML = '<div class="status">' + escapeHtml(file.status) + '</div>' +
+        row.innerHTML = '<div class="file-icon ' + fileIconClass(file) + '" title="' + escapeHtml(fileTypeLabel(file)) + '">' + escapeHtml(fileIconLabel(file)) + '</div>' +
           '<div><div class="primary">' + escapeHtml(file.filePath) + '</div>' +
-          '<div class="secondary">' + escapeHtml(file.originalPath || '') + '</div></div>';
-        row.addEventListener('focus', () => state.activePane = 'files');
+          '<div class="secondary">' + escapeHtml(fileSecondary(file)) + '</div></div>' +
+          '<div class="status ' + statusClass(file) + '" title="' + escapeHtml(fileStatusLabel(file)) + '">' + escapeHtml(fileStatusDisplay(file)) + '</div>';
+        row.addEventListener('focus', () => setActivePane('files', false));
         row.addEventListener('click', () => selectFile(file));
         row.addEventListener('dblclick', () => {
           selectFile(file);
@@ -1240,49 +2181,242 @@ function renderHtml(webview: vscode.Webview): string {
     function renderDiff() {
       if (!state.patch) {
         diffEl.innerHTML = '<div class="empty">Select a commit file to preview its diff.</div>';
+        diffStatsEl.textContent = '';
         updateDiffNavigation();
         return;
       }
-      let hunkIndex = -1;
-      const lines = state.patch.split('\\n').map((line) => {
-        let cls = 'line';
-        let attrs = '';
-        if (line.startsWith('+') && !line.startsWith('+++')) cls += ' add';
-        else if (line.startsWith('-') && !line.startsWith('---')) cls += ' del';
-        else if (line.startsWith('@@')) {
-          cls += ' hunk';
-          hunkIndex += 1;
-          attrs = ' data-hunk-index="' + hunkIndex + '"';
-        }
-        else if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')) cls += ' meta';
-        return '<span class="' + cls + '"' + attrs + '>' + escapeHtml(line || ' ') + '</span>';
-      }).join('');
-      diffEl.innerHTML = '<pre>' + lines + '</pre>';
+      const parsed = parsePatch(state.patch);
+      const stats = patchStats(parsed);
+      diffStatsEl.textContent = '+' + stats.added + ' -' + stats.deleted;
+      diffEl.innerHTML = state.diffView === 'side' ? renderSideBySideDiff(parsed) : renderUnifiedDiff(parsed);
+      diffEl.querySelectorAll('[data-hunk-index]').forEach((item) => {
+        item.addEventListener('click', () => toggleCollapsedHunk(Number(item.getAttribute('data-hunk-index'))));
+      });
       highlightCurrentHunk(false);
     }
 
+    function parsePatch(patch) {
+      const parsed = { meta: [], hunks: [] };
+      let current = undefined;
+      patch.split('\\n').forEach((line) => {
+        if (line.startsWith('@@')) {
+          current = { header: line, lines: [], index: parsed.hunks.length };
+          parsed.hunks.push(current);
+        } else if (current) {
+          current.lines.push(line);
+        } else {
+          parsed.meta.push(line);
+        }
+      });
+      return parsed;
+    }
+
+    function patchStats(parsed) {
+      return parsed.hunks.reduce((stats, hunk) => {
+        hunk.lines.forEach((line) => {
+          if (line.startsWith('+') && !line.startsWith('+++')) stats.added += 1;
+          else if (line.startsWith('-') && !line.startsWith('---')) stats.deleted += 1;
+        });
+        return stats;
+      }, { added: 0, deleted: 0 });
+    }
+
+    function renderUnifiedDiff(parsed) {
+      const parts = parsed.meta
+        .filter((line) => line)
+        .map((line) => diffLine(line, 'line meta'));
+      parsed.hunks.forEach((hunk) => {
+        parts.push(hunkHeader(hunk, 'line hunk'));
+        if (hunkCollapsed(hunk.index)) {
+          return;
+        }
+        for (let index = 0; index < hunk.lines.length; index += 1) {
+          const line = hunk.lines[index];
+          const next = hunk.lines[index + 1];
+          if (isDeletedLine(line) && isAddedLine(next)) {
+            parts.push(diffLine(line, 'line del', next));
+            parts.push(diffLine(next, 'line add', line));
+            index += 1;
+          } else {
+            parts.push(renderUnifiedLine(line));
+          }
+        }
+      });
+      return '<pre>' + parts.join('') + '</pre>';
+    }
+
+    function renderUnifiedLine(line) {
+      if (isAddedLine(line)) return diffLine(line, 'line add');
+      if (isDeletedLine(line)) return diffLine(line, 'line del');
+      if (isMetaLine(line)) return diffLine(line, 'line meta');
+      return diffLine(line, 'line');
+    }
+
+    function renderSideBySideDiff(parsed) {
+      const rows = parsed.meta
+        .filter((line) => line)
+        .map((line) => '<div class="diff-side-row meta">' + diffLine(line, 'line meta') + '</div>');
+      parsed.hunks.forEach((hunk) => {
+        rows.push('<div class="diff-side-row hunk">' + hunkHeader(hunk, 'line hunk') + '</div>');
+        if (!hunkCollapsed(hunk.index)) {
+          rows.push(...sideRows(hunk.lines));
+        }
+      });
+      return '<div class="diff-side">' + rows.join('') + '</div>';
+    }
+
+    function sideRows(lines) {
+      const rows = [];
+      let deletes = [];
+      let adds = [];
+      const flush = () => {
+        const count = Math.max(deletes.length, adds.length);
+        for (let index = 0; index < count; index += 1) {
+          rows.push(sideRow(deletes[index], adds[index]));
+        }
+        deletes = [];
+        adds = [];
+      };
+      lines.forEach((line) => {
+        if (isDeletedLine(line)) deletes.push(line);
+        else if (isAddedLine(line)) adds.push(line);
+        else {
+          flush();
+          rows.push(sideRow(line, line));
+        }
+      });
+      flush();
+      return rows;
+    }
+
+    function sideRow(left, right) {
+      const leftClass = left && isDeletedLine(left) ? ' del' : '';
+      const rightClass = right && isAddedLine(right) ? ' add' : '';
+      return '<div class="diff-side-row">' +
+        '<span class="diff-cell' + leftClass + '">' + sideCell(left, right) + '</span>' +
+        '<span class="diff-cell' + rightClass + '">' + sideCell(right, left) + '</span>' +
+        '</div>';
+    }
+
+    function sideCell(line, counterpart) {
+      if (!line) return ' ';
+      if (isAddedLine(line) || isDeletedLine(line)) {
+        return changedLineHtml(line, counterpart);
+      }
+      return escapeHtml(line || ' ');
+    }
+
+    function hunkHeader(hunk, className) {
+      const prefix = hunkCollapsed(hunk.index) ? '[+] ' : '[-] ';
+      return '<span class="' + className + '" data-hunk-index="' + hunk.index + '" tabindex="-1">' + escapeHtml(prefix + hunk.header) + '</span>';
+    }
+
+    function diffLine(line, className, counterpart) {
+      const content = counterpart ? changedLineHtml(line, counterpart) : escapeHtml(line || ' ');
+      return '<span class="' + className + '">' + content + '</span>';
+    }
+
+    function changedLineHtml(line, counterpart) {
+      const marker = line.charAt(0);
+      const text = line.slice(1);
+      const compareText = counterpart ? counterpart.slice(1) : '';
+      return escapeHtml(marker) + highlightChangedText(text, compareText);
+    }
+
+    function highlightChangedText(value, compareValue) {
+      if (!compareValue || value === compareValue) {
+        return escapeHtml(value);
+      }
+      let start = 0;
+      while (start < value.length && start < compareValue.length && value[start] === compareValue[start]) {
+        start += 1;
+      }
+      let end = value.length;
+      let compareEnd = compareValue.length;
+      while (end > start && compareEnd > start && value[end - 1] === compareValue[compareEnd - 1]) {
+        end -= 1;
+        compareEnd -= 1;
+      }
+      return escapeHtml(value.slice(0, start)) +
+        '<span class="word-change">' + escapeHtml(value.slice(start, end) || ' ') + '</span>' +
+        escapeHtml(value.slice(end));
+    }
+
+    function toggleCollapsedHunk(index) {
+      if (!Number.isFinite(index)) return;
+      if (state.collapsedHunks.includes(index)) {
+        state.collapsedHunks = state.collapsedHunks.filter((item) => item !== index);
+      } else {
+        state.collapsedHunks = [...state.collapsedHunks, index];
+      }
+      renderDiff();
+    }
+
+    function hunkCollapsed(index) {
+      return state.collapsedHunks.includes(index);
+    }
+
+    function isAddedLine(line) {
+      return String(line || '').startsWith('+') && !String(line || '').startsWith('+++');
+    }
+
+    function isDeletedLine(line) {
+      return String(line || '').startsWith('-') && !String(line || '').startsWith('---');
+    }
+
+    function isMetaLine(line) {
+      const value = String(line || '');
+      return value.startsWith('diff ') || value.startsWith('index ') || value.startsWith('---') || value.startsWith('+++');
+    }
+
     function renderDetails() {
+      const file = selectedFile();
+      if (!file) {
+        if (state.mode === 'changes') {
+          detailsEl.innerHTML = '<div class="details-title">Selection Details</div>' +
+            '<div class="details-meta">' + escapeHtml(localChangesSummary()) + '</div>';
+          return;
+        }
+        if (state.mode === 'files') {
+          detailsEl.innerHTML = '<div class="details-title">Selection Details</div>' +
+            '<div class="details-meta">' + escapeHtml(branchComparisonLabel()) + '</div>';
+          return;
+        }
+        detailsEl.innerHTML = '<div class="details-title">Selection Details</div>' +
+          '<div class="details-meta">Select a file to inspect its diff details.</div>';
+        return;
+      }
+
+      if (state.mode === 'changes') {
+        detailsEl.innerHTML = '<div class="details-title" title="' + escapeHtml(file.filePath) + '">' + escapeHtml(file.filePath) + '</div>' +
+          '<div class="details-meta">' + escapeHtml(fileStatusLabel(file)) + '</div>' +
+          detailsRow('Bucket', localChangeBucketLabel(file)) +
+          detailsRow('Status', fileStatus(file)) +
+          detailsRow('Lines', patchSummary()) +
+          detailsRow('Original', file.originalPath) +
+          detailsRow('Path', file.filePath);
+        return;
+      }
+
       if (state.mode === 'files') {
-        const label = state.compareBaseBranch && state.compareBranch
-          ? state.compareBaseBranch + '...' + state.compareBranch
-          : 'Branch file comparison';
-        detailsEl.innerHTML = '<div class="details-title">' + escapeHtml(label) + '</div>' +
-          '<div class="details-meta">' + escapeHtml(state.files.length + ' changed file' + (state.files.length === 1 ? '' : 's')) + '</div>';
+        detailsEl.innerHTML = '<div class="details-title" title="' + escapeHtml(file.filePath) + '">' + escapeHtml(file.filePath) + '</div>' +
+          '<div class="details-meta">' + escapeHtml(branchComparisonLabel()) + '</div>' +
+          detailsRow('Status', fileStatusLabel(file)) +
+          detailsRow('Lines', patchSummary()) +
+          detailsRow('Original', file.originalPath) +
+          detailsRow('Base', state.compareBaseBranch) +
+          detailsRow('Compare', state.compareBranch);
         return;
       }
+
       const commit = state.selectedCommitDetails;
-      if (!commit) {
-        detailsEl.innerHTML = '<div class="details-meta">No commit selected.</div>';
-        return;
-      }
-      detailsEl.innerHTML = '<div class="details-title">' + escapeHtml(commit.subject) + '</div>' +
-        detailsRow('Commit', commit.hash) +
-        detailsRow('Author', commit.author + ' - ' + formatDate(commit.date)) +
-        (commit.committer ? detailsRow('Committer', commit.committer + ' - ' + formatDate(commit.committerDate)) : '') +
-        (commit.parents ? detailsRow('Parents', shortParents(commit.parents)) : '') +
-        (commit.refs ? detailsRow('Refs', commit.refs) : '') +
-        detailsRow('Files', fileSummary(state.files)) +
-        (commitBody(commit) ? '<div class="details-body">' + escapeHtml(commitBody(commit)) + '</div>' : '');
+      detailsEl.innerHTML = '<div class="details-title" title="' + escapeHtml(file.filePath) + '">' + escapeHtml(file.filePath) + '</div>' +
+        '<div class="details-meta">' + escapeHtml(commit?.subject || 'Selected commit file') + '</div>' +
+        detailsRow('Status', fileStatusLabel(file)) +
+        detailsRow('Lines', patchSummary()) +
+        detailsRow('Commit', commit ? commit.shortHash : state.selectedCommit.slice(0, 12)) +
+        detailsRow('Original', file.originalPath) +
+        detailsRow('Path', file.filePath);
     }
 
     function detailsRow(label, value) {
@@ -1404,7 +2538,7 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function minColumnWidth(index) {
-      return [46, 54, 72, 92, 160][index] || 80;
+      return [54, 54, 72, 92, 160][index] || 80;
     }
 
     function applyCommitColumns(element) {
@@ -1419,15 +2553,128 @@ function renderHtml(webview: vscode.Webview): string {
       return state.commitColumns.map((width) => Math.round(width) + 'px').join(' ');
     }
 
-    function renderGraph(graph, index, total) {
-      const value = String(graph || '').trimEnd();
-      if (!value || /^\\*\\s*$/.test(value)) {
-        const top = index === 0 ? '50%' : '0';
-        const bottom = index === total - 1 ? '50%' : '0';
-        return '<div class="graph-visual" style="--graph-line-top: ' + top + '; --graph-line-bottom: ' + bottom + '"><span class="graph-node"></span></div>';
-      }
+    function buildGraphRows(commits) {
+      const lanes = [];
+      const rows = new Map();
+      commits.forEach((commit) => {
+        const parents = commitParents(commit);
+        let before = lanes.slice();
+        let lane = before.indexOf(commit.hash);
+        const introduced = lane < 0;
+        if (introduced) {
+          lane = before.length;
+          before.push(commit.hash);
+        }
 
-      return '<span class="graph-text">' + escapeHtml(value).replace(/\\*/g, '●') + '</span>';
+        const after = before.slice();
+        const mergeLanes = [];
+        if (parents.length) {
+          after[lane] = parents[0];
+          parents.slice(1).forEach((parent) => {
+            const existing = after.indexOf(parent);
+            if (existing >= 0) {
+              mergeLanes.push(existing);
+              return;
+            }
+
+            const inserted = mergeLanes.filter((item) => item > lane).length;
+            const insertAt = lane + 1 + inserted;
+            after.splice(insertAt, 0, parent);
+            mergeLanes.push(insertAt);
+          });
+        } else {
+          after.splice(lane, 1);
+        }
+
+        rows.set(commit.hash, {
+          lane,
+          laneCount: Math.max(before.length, after.length, lane + 1, ...mergeLanes.map((item) => item + 1)),
+          colorIndex: lane,
+          topLanes: before.map((_, index) => index).filter((index) => !introduced || index !== lane),
+          bottomLanes: after.map((_, index) => index),
+          mergeLanes
+        });
+
+        lanes.splice(0, lanes.length, ...after);
+      });
+      return rows;
+    }
+
+    function commitParents(commit) {
+      if (Array.isArray(commit.parentHashes)) {
+        return commit.parentHashes.filter(Boolean);
+      }
+      return String(commit.parents || '').split(/\\s+/).filter(Boolean);
+    }
+
+    function renderGraph(row, selected) {
+      if (!row) return '';
+      const spacing = 14;
+      const margin = 8;
+      const height = 24;
+      const center = 12;
+      const laneCount = Math.max(1, row.laneCount || 1);
+      const width = Math.max(28, margin * 2 + (laneCount - 1) * spacing);
+      const x = (lane) => margin + lane * spacing;
+      const color = laneColor(row.colorIndex);
+      const line = (lane, y1, y2) =>
+        '<line class="graph-line" x1="' + x(lane) + '" y1="' + y1 + '" x2="' + x(lane) + '" y2="' + y2 + '" stroke="' + laneColor(lane) + '"/>';
+      const diagonal = (lane) =>
+        '<line class="graph-line" x1="' + x(row.lane) + '" y1="' + center + '" x2="' + x(lane) + '" y2="' + height + '" stroke="' + laneColor(lane) + '"/>';
+      const topLines = row.topLanes.map((lane) => line(lane, 0, center)).join('');
+      const bottomLines = row.bottomLanes.map((lane) => line(lane, center, height)).join('');
+      const mergeLines = row.mergeLanes.map(diagonal).join('');
+      const selectedRing = selected ? '<circle cx="' + x(row.lane) + '" cy="' + center + '" r="7.2" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.72"/>' : '';
+      const node = selectedRing +
+        '<circle class="graph-node" cx="' + x(row.lane) + '" cy="' + center + '" r="4.8" stroke="currentColor"/>' +
+        '<circle class="graph-node-inner" cx="' + x(row.lane) + '" cy="' + center + '" r="2.1"/>';
+      return '<svg class="graph-lanes" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" style="color: ' + color + '" aria-hidden="true">' +
+        topLines + bottomLines + mergeLines + node + '</svg>';
+    }
+
+    function laneColor(index) {
+      const colors = [
+        'var(--vscode-gitDecoration-addedResourceForeground)',
+        'var(--vscode-charts-blue)',
+        'var(--vscode-charts-orange)',
+        'var(--vscode-charts-purple)',
+        'var(--vscode-charts-green)',
+        'var(--vscode-charts-yellow)',
+        'var(--vscode-charts-red)'
+      ];
+      return colors[Math.abs(index) % colors.length];
+    }
+
+    function renderRefLabels(refs) {
+      const labels = parseRefLabels(refs);
+      if (!labels.length) return '';
+      const visible = labels.slice(0, 4);
+      const hidden = labels.length - visible.length;
+      return '<span class="ref-labels">' + visible.map((item) =>
+        '<span class="ref-label ' + item.kind + '" title="' + escapeHtml(item.full) + '">' + escapeHtml(item.label) + '</span>'
+      ).join('') + (hidden > 0 ? '<span class="ref-label" title="' + escapeHtml(labels.slice(4).map((item) => item.full).join(', ')) + '">+' + hidden + '</span>' : '') + '</span>';
+    }
+
+    function parseRefLabels(refs) {
+      return String(refs || '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .flatMap((item) => {
+          if (item.startsWith('HEAD -> ')) {
+            return [
+              { label: 'HEAD', full: item, kind: 'head' },
+              refLabel(item.slice('HEAD -> '.length))
+            ];
+          }
+          return [refLabel(item)];
+        });
+    }
+
+    function refLabel(value) {
+      const label = value.startsWith('tag: ') ? value.slice(5) : value;
+      const kind = value.startsWith('tag: ') ? 'tag' : value.includes('/') ? 'remote' : '';
+      return { label, full: value, kind };
     }
 
     function selectableRow(className, role, selected) {
@@ -1444,11 +2691,23 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function handleKeydown(event) {
+      if (event.key === 'Escape' && helpOverlayEl.classList.contains('open')) {
+        event.preventDefault();
+        hideHelp();
+        return;
+      }
       const tag = event.target && event.target.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
+      if (event.key === 'F1') {
+        hideContextMenu();
+        event.preventDefault();
+        showHelp();
+        return;
+      }
       if (event.key === '?') {
         event.preventDefault();
+        setActivePane('branches');
         branchSearchEl.focus();
         branchSearchEl.select();
         return;
@@ -1456,6 +2715,7 @@ function renderHtml(webview: vscode.Webview): string {
       if (event.key === '/') {
         hideContextMenu();
         event.preventDefault();
+        setActivePane('commits');
         commitSearchEl.focus();
         commitSearchEl.select();
         return;
@@ -1463,6 +2723,7 @@ function renderHtml(webview: vscode.Webview): string {
       if (event.key === 'f') {
         hideContextMenu();
         event.preventDefault();
+        setActivePane('files');
         fileSearchEl.focus();
         fileSearchEl.select();
         return;
@@ -1577,11 +2838,14 @@ function renderHtml(webview: vscode.Webview): string {
         const next = nextIndex(branches.findIndex((branch) => branch.name === state.selectedBranch), branches.length, delta);
         if (next >= 0) selectBranch(branches[next].name);
       } else if (state.activePane === 'files') {
+        if (state.filesLoading) return;
         const files = filteredFiles();
-        const next = nextIndex(files.findIndex((file) => file.filePath === state.selectedFile), files.length, delta);
+        const next = nextIndex(files.findIndex((file) => fileKey(file) === state.selectedFile), files.length, delta);
         if (next >= 0) selectFile(files[next]);
+      } else if (state.activePane === 'diff') {
+        navigateHunk(delta);
       } else {
-        state.activePane = 'commits';
+        setActivePane('commits', false);
         const commits = filteredCommits();
         const next = nextIndex(commits.findIndex((commit) => commit.hash === state.selectedCommit), commits.length, delta);
         if (next >= 0) selectCommit(commits[next].hash);
@@ -1591,9 +2855,18 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function moveHorizontal(delta) {
-      const panes = ['branches', 'commits', 'files'];
+      const panes = ['branches', 'commits', 'files', 'diff'];
       const index = panes.indexOf(state.activePane);
-      state.activePane = panes[Math.max(0, Math.min(panes.length - 1, index + delta))] || 'commits';
+      const nextPane = panes[Math.max(0, Math.min(panes.length - 1, index + delta))] || 'commits';
+      setActivePane(nextPane, false);
+      if (nextPane === 'files' && !state.filesLoading && !selectedFile()) {
+        const file = filteredFiles()[0];
+        if (file) {
+          selectFile(file);
+          focusSelected();
+          return;
+        }
+      }
       saveLayoutState();
       render();
       focusSelected();
@@ -1604,6 +2877,7 @@ function renderHtml(webview: vscode.Webview): string {
         const branch = state.branches.find((item) => item.name === state.selectedBranch) || state.branches[0];
         if (branch) selectBranch(branch.name);
       } else if (state.activePane === 'files') {
+        if (state.filesLoading) return;
         const file = selectedFile();
         if (file) openSelectedFileDiff();
       } else {
@@ -1614,24 +2888,38 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function selectBranch(branchName) {
-      state.activePane = 'branches';
+      setActivePane('branches', false);
       state.selectedBranch = branchName;
       saveLayoutState();
       vscode.postMessage({ type: 'selectBranch', branch: branchName });
     }
 
     function selectCommit(hash) {
-      state.activePane = 'commits';
+      setActivePane('commits', false);
       state.selectedCommit = hash;
+      state.selectedCommitDetails = undefined;
+      state.selectedFile = '';
+      setFilesLoading(true, hash);
+      state.patch = '';
       saveLayoutState();
+      renderCommitSummary();
+      renderFiles();
+      renderDiff();
+      renderDetails();
       vscode.postMessage({ type: 'selectCommit', hash });
     }
 
     function selectFile(file) {
-      state.activePane = 'files';
-      state.selectedFile = file.filePath;
+      setActivePane('files', false);
+      state.selectedFile = fileKey(file);
+      state.patch = '';
       saveLayoutState();
-      if (state.mode === 'files') {
+      renderFiles();
+      renderDiff();
+      renderDetails();
+      if (state.mode === 'changes') {
+        vscode.postMessage({ type: 'selectLocalChange', change: file });
+      } else if (state.mode === 'files') {
         vscode.postMessage({ type: 'selectCompareFile', file });
       } else {
         vscode.postMessage({ type: 'selectFile', hash: state.selectedCommit, file });
@@ -1640,7 +2928,9 @@ function renderHtml(webview: vscode.Webview): string {
 
     function openSelectedFileDiff() {
       const file = selectedFile();
-      if (file && state.mode === 'files') {
+      if (file && state.mode === 'changes') {
+        vscode.postMessage({ type: 'openLocalChangeDiff', change: file });
+      } else if (file && state.mode === 'files') {
         vscode.postMessage({ type: 'openCompareFileDiff', file });
       } else if (file && state.selectedCommit) {
         vscode.postMessage({ type: 'openFileDiff', hash: state.selectedCommit, file });
@@ -1649,7 +2939,9 @@ function renderHtml(webview: vscode.Webview): string {
 
     function openSelectedFileAtRevision() {
       const file = selectedFile();
-      if (file && state.mode === 'files') {
+      if (file && state.mode === 'changes') {
+        openSelectedWorkingFile();
+      } else if (file && state.mode === 'files') {
         vscode.postMessage({ type: 'openCompareFileAtRevision', file });
       } else if (file && state.selectedCommit) {
         vscode.postMessage({ type: 'openFileAtRevision', hash: state.selectedCommit, file });
@@ -1670,6 +2962,130 @@ function renderHtml(webview: vscode.Webview): string {
       }
     }
 
+    function stageSelectedChange() {
+      const change = selectedLocalChange();
+      if (change && change.bucket !== 'staged') {
+        vscode.postMessage({ type: 'stageLocalChange', change });
+      }
+    }
+
+    function unstageSelectedChange() {
+      const change = selectedLocalChange();
+      if (change && change.bucket === 'staged') {
+        vscode.postMessage({ type: 'unstageLocalChange', change });
+      }
+    }
+
+    function commitLocalChanges() {
+      vscode.postMessage({ type: 'commitLocalChanges' });
+    }
+
+    function shelveLocalChanges() {
+      vscode.postMessage({ type: 'shelveLocalChanges' });
+    }
+
+    function unshelveChanges() {
+      vscode.postMessage({ type: 'unshelveChanges' });
+    }
+
+    function toggleDiffView() {
+      state.diffView = state.diffView === 'side' ? 'unified' : 'side';
+      saveLayoutState();
+      renderChrome();
+      renderDiff();
+    }
+
+    function showSelectedBranchActions() {
+      const button = document.getElementById('branchActions');
+      const rect = button.getBoundingClientRect();
+      showContextMenuAt(rect.left, rect.bottom + 4, 'branch');
+    }
+
+    function createBranch() {
+      vscode.postMessage({ type: 'createBranch' });
+    }
+
+    function deleteSelectedBranch() {
+      const branch = selectedBranch();
+      if (branch) {
+        vscode.postMessage({ type: 'deleteBranch', branch: branch.name, remote: Boolean(branch.remote) });
+      }
+    }
+
+    function renameSelectedBranch() {
+      const branch = selectedBranch();
+      if (branch) {
+        vscode.postMessage({ type: 'renameBranch', branch: branch.name, remote: Boolean(branch.remote) });
+      }
+    }
+
+    function mergeSelectedBranch() {
+      const branch = selectedBranch();
+      if (branch) {
+        vscode.postMessage({ type: 'mergeBranch', branch: branch.name });
+      }
+    }
+
+    function rebaseOntoSelectedBranch() {
+      const branch = selectedBranch();
+      if (branch) {
+        vscode.postMessage({ type: 'rebaseOntoBranch', branch: branch.name });
+      }
+    }
+
+    function compareSelectedBranch() {
+      const branch = selectedBranch();
+      if (branch) {
+        state.mode = 'files';
+        saveLayoutState();
+        renderChrome();
+        vscode.postMessage({ type: 'compareBranch', branch: branch.name });
+      }
+    }
+
+    function showSelectedCommitActions() {
+      const commit = selectedCommit();
+      if (!commit) return;
+      const button = document.getElementById('commitActions');
+      const rect = button.getBoundingClientRect();
+      showContextMenuAt(rect.left, rect.bottom + 4, 'commit');
+    }
+
+    function cherryPickSelectedCommit() {
+      const commit = selectedCommit();
+      if (commit) {
+        vscode.postMessage({ type: 'cherryPickCommit', hash: commit.hash });
+      }
+    }
+
+    function revertSelectedCommit() {
+      const commit = selectedCommit();
+      if (commit) {
+        vscode.postMessage({ type: 'revertCommit', hash: commit.hash });
+      }
+    }
+
+    function createBranchFromSelectedCommit() {
+      const commit = selectedCommit();
+      if (commit) {
+        vscode.postMessage({ type: 'createBranchFromCommit', hash: commit.hash });
+      }
+    }
+
+    function createTagFromSelectedCommit() {
+      const commit = selectedCommit();
+      if (commit) {
+        vscode.postMessage({ type: 'createTagFromCommit', hash: commit.hash });
+      }
+    }
+
+    function checkoutSelectedCommit() {
+      const commit = selectedCommit();
+      if (commit) {
+        vscode.postMessage({ type: 'checkoutCommit', hash: commit.hash });
+      }
+    }
+
     function checkoutSelectedBranch() {
       const branch = selectedBranch();
       if (branch && !branch.current) {
@@ -1687,13 +3103,17 @@ function renderHtml(webview: vscode.Webview): string {
 
     function selectedFile() {
       const files = filteredFiles();
-      return files.find((item) => item.filePath === state.selectedFile) || files[0];
+      return files.find((item) => fileKey(item) === state.selectedFile);
+    }
+
+    function selectedLocalChange() {
+      return state.mode === 'changes' ? selectedFile() : undefined;
     }
 
     function navigateFile(delta) {
       const files = filteredFiles();
       if (!files.length) return;
-      const current = files.findIndex((file) => file.filePath === state.selectedFile);
+      const current = files.findIndex((file) => fileKey(file) === state.selectedFile);
       const next = nextIndex(current, files.length, delta);
       if (next >= 0) {
         selectFile(files[next]);
@@ -1705,9 +3125,11 @@ function renderHtml(webview: vscode.Webview): string {
     function navigateHunk(delta) {
       const hunks = hunkElements();
       if (!hunks.length) return;
+      setActivePane('diff', false);
       const current = state.currentHunkIndex < 0 ? (delta > 0 ? -1 : 0) : state.currentHunkIndex;
       state.currentHunkIndex = nextIndex(current, hunks.length, delta);
       highlightCurrentHunk(true);
+      saveLayoutState();
     }
 
     function hunkElements() {
@@ -1734,10 +3156,10 @@ function renderHtml(webview: vscode.Webview): string {
 
     function updateDiffNavigation() {
       const files = filteredFiles();
-      const fileIndex = files.findIndex((file) => file.filePath === state.selectedFile);
+      const fileIndex = files.findIndex((file) => fileKey(file) === state.selectedFile);
       const hunkCount = hunkElements().length;
-      document.getElementById('prevFile').disabled = fileIndex <= 0;
-      document.getElementById('nextFile').disabled = fileIndex < 0 || fileIndex >= files.length - 1;
+      document.getElementById('prevFile').disabled = state.filesLoading || fileIndex <= 0;
+      document.getElementById('nextFile').disabled = state.filesLoading || fileIndex < 0 || fileIndex >= files.length - 1;
       document.getElementById('prevHunk').disabled = hunkCount === 0 || state.currentHunkIndex <= 0;
       document.getElementById('nextHunk').disabled = hunkCount === 0 || state.currentHunkIndex >= hunkCount - 1;
     }
@@ -1756,23 +3178,159 @@ function renderHtml(webview: vscode.Webview): string {
     function filteredFiles() {
       const query = state.fileSearch.trim().toLowerCase();
       return state.files.filter((file) => {
-        if (state.fileFilter !== 'all' && !file.status.startsWith(state.fileFilter)) return false;
+        const status = fileStatus(file);
+        if (state.fileFilter !== 'all' && !status.startsWith(state.fileFilter)) return false;
         if (!query) return true;
-        return [file.status, file.filePath, file.originalPath]
+        return [status, fileStatusLabel(file), file.filePath, file.originalPath]
           .some((value) => String(value || '').toLowerCase().includes(query));
       });
+    }
+
+    function fileKey(file) {
+      return state.mode === 'changes' ? file.bucket + ':' + file.filePath : file.filePath;
+    }
+
+    function fileStatus(file) {
+      if (state.mode !== 'changes') {
+        return file.status || '';
+      }
+      if (file.bucket === 'untracked') return '?';
+      if (file.bucket === 'conflicts') return '!';
+      return file.bucket === 'staged' ? String(file.x || '').trim() : String(file.y || '').trim();
+    }
+
+    function fileStatusDisplay(file) {
+      const status = fileStatus(file);
+      if (status.startsWith('R')) return 'R';
+      if (status.startsWith('C')) return 'C';
+      return status || '';
+    }
+
+    function fileStatusLabel(file) {
+      if (state.mode !== 'changes') {
+        return statusLabel(file.status || '');
+      }
+      if (file.bucket === 'untracked') return 'Untracked';
+      if (file.bucket === 'conflicts') return 'Conflict';
+      const code = fileStatus(file);
+      const label = statusLabel(code);
+      return (file.bucket === 'staged' ? 'Staged ' : 'Unstaged ') + label;
+    }
+
+    function statusClass(file) {
+      const status = fileStatus(file);
+      if (status.startsWith('A') || status === '?') return 'added';
+      if (status.startsWith('D')) return 'deleted';
+      if (status.startsWith('R') || status.startsWith('C')) return 'renamed';
+      if (status.startsWith('M')) return 'modified';
+      return '';
+    }
+
+    function statusLabel(code) {
+      const value = String(code || '');
+      if (value.startsWith('A')) return 'Added';
+      if (value.startsWith('M')) return 'Modified';
+      if (value.startsWith('D')) return 'Deleted';
+      if (value.startsWith('R')) return 'Renamed';
+      if (value.startsWith('C')) return 'Copied';
+      if (value.startsWith('?')) return 'Untracked';
+      if (value.startsWith('!') || value.includes('U')) return 'Conflict';
+      return value || 'Changed';
+    }
+
+    function localChangeBucketLabel(file) {
+      if (!file?.bucket) return '';
+      return file.bucket.charAt(0).toUpperCase() + file.bucket.slice(1);
+    }
+
+    function fileSecondary(file) {
+      if (state.mode === 'changes') {
+        const original = file.originalPath ? file.originalPath + ' -> ' : '';
+        return original + fileStatusLabel(file);
+      }
+      return file.originalPath || '';
+    }
+
+    function fileIconLabel(file) {
+      const type = fileType(file);
+      if (type === 'json') return '{}';
+      if (type === 'lock') return 'L';
+      if (type === 'config') return '*';
+      return (type || 'file').slice(0, 3).toUpperCase();
+    }
+
+    function fileIconClass(file) {
+      return 'type-' + fileType(file).replace(/[^a-z0-9_-]/g, '');
+    }
+
+    function fileTypeLabel(file) {
+      const type = fileType(file);
+      return type === 'file' ? 'File' : type.toUpperCase() + ' file';
+    }
+
+    function fileType(file) {
+      const name = String(file.filePath || '').split('/').pop() || '';
+      const lower = name.toLowerCase();
+      if (lower === 'package.json' || lower === 'tsconfig.json') return 'json';
+      if (lower.endsWith('.lock') || lower === 'package-lock.json' || lower === 'yarn.lock' || lower === 'pnpm-lock.yaml') return 'lock';
+      if (lower.startsWith('.') || lower.endsWith('config.js') || lower.endsWith('config.ts')) return 'config';
+      const dot = lower.lastIndexOf('.');
+      return dot >= 0 && dot < lower.length - 1 ? lower.slice(dot + 1) : 'file';
+    }
+
+    function localChangesSummary() {
+      if (!state.files.length) return 'No local changes.';
+      const counts = state.files.reduce((acc, file) => {
+        const key = file.bucket || 'changed';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      const parts = ['staged', 'unstaged', 'untracked', 'conflicts']
+        .filter((key) => counts[key])
+        .map((key) => key + ':' + counts[key]);
+      return state.files.length + ' local change' + (state.files.length === 1 ? '' : 's') + (parts.length ? ' (' + parts.join(', ') + ')' : '');
+    }
+
+    function selectedLocalChangeLabel() {
+      const change = selectedLocalChange();
+      return change ? fileStatusLabel(change) + ' - ' + change.filePath : '';
+    }
+
+    function branchComparisonLabel() {
+      if (state.compareBaseBranch && state.compareBranch) {
+        return state.compareBaseBranch + '...' + state.compareBranch;
+      }
+      return state.files.length + ' changed file' + (state.files.length === 1 ? '' : 's');
+    }
+
+    function patchSummary() {
+      const stats = selectedPatchStats();
+      if (!stats) return 'No preview loaded';
+      const hunkText = stats.hunks + ' hunk' + (stats.hunks === 1 ? '' : 's');
+      return '+' + stats.added + ' -' + stats.deleted + ', ' + hunkText;
+    }
+
+    function selectedPatchStats() {
+      if (!state.patch) return undefined;
+      const parsed = parsePatch(state.patch);
+      const stats = patchStats(parsed);
+      return { added: stats.added, deleted: stats.deleted, hunks: parsed.hunks.length };
     }
 
     function showContextMenu(event, type) {
       event.preventDefault();
       event.stopPropagation();
+      showContextMenuAt(event.clientX, event.clientY, type);
+    }
+
+    function showContextMenuAt(x, y, type) {
       state.contextMenuType = type;
       renderContextMenu();
       contextMenuEl.classList.add('open');
       const width = contextMenuEl.offsetWidth || 180;
       const height = contextMenuEl.offsetHeight || 120;
-      const left = Math.min(event.clientX, window.innerWidth - width - 8);
-      const top = Math.min(event.clientY, window.innerHeight - height - 8);
+      const left = Math.min(x, window.innerWidth - width - 8);
+      const top = Math.min(y, window.innerHeight - height - 8);
       contextMenuEl.style.left = Math.max(8, left) + 'px';
       contextMenuEl.style.top = Math.max(8, top) + 'px';
     }
@@ -1782,6 +3340,17 @@ function renderHtml(webview: vscode.Webview): string {
       state.contextMenuType = '';
     }
 
+    function showHelp() {
+      hideContextMenu();
+      helpOverlayEl.classList.add('open');
+      document.getElementById('closeHelp').focus();
+    }
+
+    function hideHelp() {
+      helpOverlayEl.classList.remove('open');
+      focusSelected();
+    }
+
     function renderContextMenu() {
       const branch = selectedBranch();
       const commit = selectedCommit();
@@ -1789,21 +3358,42 @@ function renderHtml(webview: vscode.Webview): string {
       let actions = [];
       if (state.contextMenuType === 'branch') {
         actions = [
+          { action: 'createBranch', label: 'New Branch' },
           { action: 'checkoutBranch', label: 'Checkout Branch', disabled: !branch || branch.current },
+          { action: 'compareBranch', label: 'Compare with Current Branch', disabled: !branch || branch.current },
+          { action: 'mergeBranch', label: 'Merge into Current', disabled: !branch || branch.current },
+          { action: 'rebaseOntoBranch', label: 'Rebase Current onto Branch', disabled: !branch || branch.current },
+          { action: 'renameBranch', label: 'Rename Branch', disabled: !branch || branch.remote },
+          { action: 'deleteBranch', label: 'Delete Branch', disabled: !branch || branch.current || branch.remote },
           { action: 'refresh', label: 'Refresh' }
         ];
       } else if (state.contextMenuType === 'commit') {
         actions = [
           { action: 'copyHash', label: 'Copy Commit Hash', disabled: !commit },
+          { action: 'cherryPickCommit', label: 'Cherry-pick Commit', disabled: !commit },
+          { action: 'revertCommit', label: 'Revert Commit', disabled: !commit },
+          { action: 'createBranchFromCommit', label: 'New Branch from Commit', disabled: !commit },
+          { action: 'createTagFromCommit', label: 'New Tag from Commit', disabled: !commit },
+          { action: 'checkoutCommit', label: 'Checkout Commit', disabled: !commit },
           { action: 'refresh', label: 'Refresh' }
         ];
       } else if (state.contextMenuType === 'file') {
-        actions = [
-          { action: 'openDiff', label: 'Open Diff', disabled: !file },
-          { action: 'openFile', label: 'Open File at Revision', disabled: !file || file.status.startsWith('D') },
-          { action: 'openWorkingFile', label: 'Open Working Tree File', disabled: !file },
-          { action: 'copyHash', label: 'Copy Commit Hash', disabled: !commit }
-        ];
+        actions = state.mode === 'changes'
+          ? [
+              { action: 'stageChange', label: 'Stage', disabled: !file || file.bucket === 'staged' },
+              { action: 'unstageChange', label: 'Unstage', disabled: !file || file.bucket !== 'staged' },
+              { action: 'openDiff', label: 'Open Diff', disabled: !file },
+              { action: 'openWorkingFile', label: 'Open Working Tree File', disabled: !file || file.bucket === 'staged' },
+              { action: 'commitChanges', label: 'Commit Staged Changes', disabled: !state.files.some((item) => item.bucket === 'staged') },
+              { action: 'shelveChanges', label: 'Shelve Changes', disabled: !state.files.length },
+              { action: 'unshelveChanges', label: 'Unshelve Changes' }
+            ]
+          : [
+              { action: 'openDiff', label: 'Open Diff', disabled: !file },
+              { action: 'openFile', label: 'Open File at Revision', disabled: !file || file.status.startsWith('D') },
+              { action: 'openWorkingFile', label: 'Open Working Tree File', disabled: !file },
+              { action: 'copyHash', label: 'Copy Commit Hash', disabled: !commit }
+            ];
       }
 
       contextMenuEl.innerHTML = actions
@@ -1817,8 +3407,24 @@ function renderHtml(webview: vscode.Webview): string {
       if (!button || button.disabled) return;
       const action = button.dataset.action;
       hideContextMenu();
-      if (action === 'checkoutBranch') checkoutSelectedBranch();
+      if (action === 'createBranch') createBranch();
+      else if (action === 'checkoutBranch') checkoutSelectedBranch();
+      else if (action === 'deleteBranch') deleteSelectedBranch();
+      else if (action === 'renameBranch') renameSelectedBranch();
+      else if (action === 'mergeBranch') mergeSelectedBranch();
+      else if (action === 'rebaseOntoBranch') rebaseOntoSelectedBranch();
+      else if (action === 'compareBranch') compareSelectedBranch();
       else if (action === 'copyHash') copySelectedCommitHash();
+      else if (action === 'cherryPickCommit') cherryPickSelectedCommit();
+      else if (action === 'revertCommit') revertSelectedCommit();
+      else if (action === 'createBranchFromCommit') createBranchFromSelectedCommit();
+      else if (action === 'createTagFromCommit') createTagFromSelectedCommit();
+      else if (action === 'checkoutCommit') checkoutSelectedCommit();
+      else if (action === 'stageChange') stageSelectedChange();
+      else if (action === 'unstageChange') unstageSelectedChange();
+      else if (action === 'commitChanges') commitLocalChanges();
+      else if (action === 'shelveChanges') shelveLocalChanges();
+      else if (action === 'unshelveChanges') unshelveChanges();
       else if (action === 'openDiff') openSelectedFileDiff();
       else if (action === 'openFile') openSelectedFileAtRevision();
       else if (action === 'openWorkingFile') openSelectedWorkingFile();
@@ -1854,8 +3460,44 @@ function renderHtml(webview: vscode.Webview): string {
       return Math.max(0, Math.min(length - 1, start + delta));
     }
 
+    function setFilesLoading(loading, commit = '') {
+      if (state.filesLoadingTimer) {
+        clearTimeout(state.filesLoadingTimer);
+        state.filesLoadingTimer = undefined;
+      }
+
+      state.filesLoading = loading;
+      state.pendingFilesCommit = loading ? commit : '';
+      state.filesLoadingVisible = false;
+      if (!loading) {
+        return;
+      }
+
+      state.filesLoadingTimer = setTimeout(() => {
+        if (state.filesLoading && state.pendingFilesCommit === commit) {
+          state.filesLoadingVisible = true;
+          renderFiles();
+        }
+      }, 120);
+    }
+
+    function setActivePane(pane, persist = true) {
+      if (!pane || state.activePane === pane) return;
+      state.activePane = pane;
+      renderActivePane();
+      if (persist) {
+        saveLayoutState();
+      }
+    }
+
     function focusSelected() {
       requestAnimationFrame(() => {
+        if (state.activePane === 'diff') {
+          const hunk = hunkElements()[state.currentHunkIndex];
+          (hunk || diffEl).focus?.({ preventScroll: true });
+          hunk?.scrollIntoView({ block: 'nearest' });
+          return;
+        }
         const container = state.activePane === 'branches' ? branchesEl : state.activePane === 'files' ? filesEl : commitsEl;
         const selected = container.querySelector('.row.selected');
         if (selected) {
@@ -1883,11 +3525,15 @@ function renderHtml(webview: vscode.Webview): string {
       vscode.setState({
         activePane: state.activePane,
         mode: state.mode,
+        selectedBranch: state.selectedBranch,
+        selectedCommit: state.selectedCommit,
+        selectedFile: state.selectedFile,
         branchSearch: state.branchSearch,
         branchFilter: state.branchFilter,
         commitSearch: state.commitSearch,
         fileSearch: state.fileSearch,
         fileFilter: state.fileFilter,
+        diffView: state.diffView,
         paneColumns: state.paneColumns,
         commitColumns: state.commitColumns
       });
@@ -1901,9 +3547,12 @@ function renderHtml(webview: vscode.Webview): string {
       state.commitSearch = '';
       state.fileSearch = '';
       state.fileFilter = 'all';
+      state.diffView = 'unified';
+      state.collapsedHunks = [];
       state.currentHunkIndex = -1;
+      setFilesLoading(false);
       state.paneColumns = [180, 560, 280, 520];
-      state.commitColumns = [56, 74, 120, 142, 360];
+      state.commitColumns = [86, 74, 120, 142, 360];
       branchSearchEl.value = '';
       commitSearchEl.value = '';
       fileSearchEl.value = '';
@@ -1935,4 +3584,8 @@ function getNonce(): string {
     text += possible.charAt(Math.floor(Math.random() * possible.length));
   }
   return text;
+}
+
+function localChangeKey(change: GitChange): string {
+  return `${change.bucket}:${change.filePath}`;
 }
