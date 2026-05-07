@@ -56,12 +56,12 @@ export class BranchGroupNode extends vscode.TreeItem {
 }
 
 export class BranchItemNode extends vscode.TreeItem {
-  constructor(readonly branch: GitBranch) {
-    super(branch.current ? `${branch.name}  \u2713` : branch.name, vscode.TreeItemCollapsibleState.None);
+  constructor(readonly branch: GitBranch, label = branch.name, nested = false) {
+    super(branch.current ? `${label}  \u2713` : label, vscode.TreeItemCollapsibleState.None);
     this.description = branch.upstream ?? branch.hash;
-    this.tooltip = branch.subject || branch.name;
+    this.tooltip = branch.subject ? `${branch.name}: ${branch.subject}` : branch.name;
     this.contextValue = branch.remote ? 'remoteBranch' : 'branch';
-    this.iconPath = new vscode.ThemeIcon(branch.current ? 'check' : 'git-branch');
+    this.iconPath = new vscode.ThemeIcon(branch.current ? 'check' : nested ? 'git-commit' : 'git-branch');
     this.command = {
       command: 'abstractiveScm.checkoutBranch',
       title: 'Checkout Branch',
@@ -102,6 +102,11 @@ function branchFolderChildren(branches: GitBranch[], parentParts: string[]): Bra
       .map(([name, folderBranches]) => new BranchFolderNode(name, [...parentParts, name], folderBranches)),
     ...leaves
       .sort((left, right) => left.name.localeCompare(right.name))
-      .map((branch) => new BranchItemNode(branch))
+      .map((branch) => new BranchItemNode(branch, branchLabel(branch, depth), depth > 0))
   ];
+}
+
+function branchLabel(branch: GitBranch, depth: number): string {
+  const parts = branch.name.split('/').filter(Boolean);
+  return parts.slice(depth).join('/') || branch.name;
 }

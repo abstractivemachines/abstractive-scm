@@ -73,6 +73,9 @@ Bottom panel behavior:
 - Bottom-panel graph nodes emphasize selected/hovered commits; ref labels remain in the subject column rather than graph glyphs.
 - Activity/panel icon now uses `media/activity-graph.svg`, a larger bolder commit-graph glyph; the new filename avoids VS Code reusing the old cached activity icon.
 - The Local Changes tree view now owns a VS Code view badge showing the current local change count, so the custom activity icon can show a count indicator.
+- Branch tree mode filters remote HEAD aliases like `origin` and shows branch leaves relative to their folder, e.g. `Remote > origin > main`.
+- Nested branch leaves use a compact commit-node icon instead of the wider branch glyph so child rows align more clearly under folders.
+- Side-panel Log rows now hide `origin/HEAD`, compact refs into the label, and use author/date as stable row metadata.
 
 Verification already run:
 

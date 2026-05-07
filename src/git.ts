@@ -210,6 +210,7 @@ export class GitService {
       .map((line) => {
         const [refname, name, upstream, hash, subject] = line.split('\x1f');
         return {
+          refname,
           name,
           upstream: upstream || undefined,
           hash: hash ?? '',
@@ -218,7 +219,8 @@ export class GitService {
           remote: refname.startsWith('refs/remotes/')
         };
       })
-      .filter((branch) => branch.name !== 'origin/HEAD');
+      .filter((branch) => !branch.remote || !branch.refname.endsWith('/HEAD'))
+      .map(({ refname: _refname, ...branch }) => branch);
   }
 
   async compareWithBranch(targetBranch: string): Promise<BranchComparison> {

@@ -25,9 +25,16 @@ export class LogProvider implements vscode.TreeDataProvider<CommitNode> {
 
 export class CommitNode extends vscode.TreeItem {
   constructor(readonly commit: GitCommit) {
-    super(`${commit.shortHash} ${commit.subject}`, vscode.TreeItemCollapsibleState.None);
-    this.description = commit.refs || commit.author;
-    this.tooltip = `${commit.hash}\n${commit.author}\n${new Date(commit.date).toLocaleString()}`;
+    const refs = compactRefs(commit.refs);
+    super(`${commit.shortHash} ${commit.subject}${refs ? `  ${refs}` : ''}`, vscode.TreeItemCollapsibleState.None);
+    this.description = `${commit.author}  ${formatShortDate(commit.date)}`;
+    this.tooltip = [
+      commit.hash,
+      commit.subject,
+      `Author: ${commit.author}`,
+      `Date: ${new Date(commit.date).toLocaleString()}`,
+      commit.refs ? `Refs: ${cleanRefs(commit.refs)}` : ''
+    ].filter(Boolean).join('\n');
     this.contextValue = 'commit';
     this.iconPath = new vscode.ThemeIcon('git-commit');
     this.command = {
@@ -59,7 +66,7 @@ export async function showCommitDetails(commit: GitCommit): Promise<void> {
       `commit ${commit.hash}`,
       `Author: ${commit.author}`,
       `Date:   ${new Date(commit.date).toLocaleString()}`,
-      commit.refs ? `Refs:   ${commit.refs}` : '',
+      commit.refs ? `Refs:   ${cleanRefs(commit.refs)}` : '',
       '',
       commit.subject
     ]
@@ -72,7 +79,7 @@ export async function showCommitDetails(commit: GitCommit): Promise<void> {
 function renderLogHtml(commits: GitCommit[]): string {
   const rows = commits
     .map((commit) => {
-      const refs = commit.refs ? `<span class="refs">${escapeHtml(commit.refs)}</span>` : '';
+      const refs = commit.refs ? `<span class="refs">${escapeHtml(compactRefs(commit.refs))}</span>` : '';
       return `<article class="commit">
         <div class="hash">${escapeHtml(commit.shortHash)}</div>
         <div class="message">
@@ -144,6 +151,38 @@ function renderLogHtml(commits: GitCommit[]): string {
   <main>${rows}</main>
 </body>
 </html>`;
+}
+
+function cleanRefs(refs: string): string {
+  return refs
+    .split(',')
+    .map((ref) => ref.trim())
+    .filter((ref) => ref && ref !== 'origin/HEAD')
+    .join(', ');
+}
+
+function compactRefs(refs: string): string {
+  const cleaned = cleanRefs(refs);
+  if (!cleaned) {
+    return '';
+  }
+
+  return cleaned
+    .split(',')
+    .map((ref) => ref.trim())
+    .map((ref) => ref.startsWith('HEAD -> ') ? ref.slice('HEAD -> '.length) : ref)
+    .map((ref) => ref.startsWith('origin/') ? ref.slice('origin/'.length) : ref)
+    .slice(0, 3)
+    .join(', ');
+}
+
+function formatShortDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function escapeHtml(value: string): string {
