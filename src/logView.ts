@@ -55,7 +55,7 @@ export async function showLogWebview(context: vscode.ExtensionContext, git: GitS
     { enableScripts: false }
   );
 
-  panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'activity-graph.svg');
+  panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'activity-branch.svg');
   panel.webview.html = renderLogHtml(commits);
 }
 

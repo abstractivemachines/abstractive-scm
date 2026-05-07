@@ -27,6 +27,36 @@ const changeBucketTitles: Record<ChangeBucket, string> = {
   untracked: 'Untracked'
 };
 
+function statusBarText(changes: GitChange[], ahead: number, behind: number): string {
+  const conflicts = changes.filter((change) => change.bucket === 'conflicts').length;
+  const state = [
+    conflicts ? `!${conflicts}` : '',
+    changes.length ? String(changes.length) : '',
+    ahead ? `↑${ahead}` : '',
+    behind ? `↓${behind}` : ''
+  ].filter(Boolean).join(' ');
+  return `$(window) SCM${state ? ` ${state}` : ''}`;
+}
+
+function statusBarTooltip(repoName: string, branch: string, changes: GitChange[], ahead: number, behind: number): vscode.MarkdownString {
+  const conflicts = changes.filter((change) => change.bucket === 'conflicts').length;
+  const staged = changes.filter((change) => change.bucket === 'staged').length;
+  const unstaged = changes.filter((change) => change.bucket === 'unstaged').length;
+  const untracked = changes.filter((change) => change.bucket === 'untracked').length;
+  const tooltip = new vscode.MarkdownString(undefined, true);
+  tooltip.isTrusted = true;
+  tooltip.appendMarkdown('**Open Abstractive SCM Panel**');
+  tooltip.appendMarkdown(`\n\nRepository: \`${repoName}\``);
+  tooltip.appendMarkdown(`\n\nBranch: \`${branch}\``);
+  tooltip.appendMarkdown(`\n\nLocal changes: ${changes.length}`);
+  if (conflicts) tooltip.appendMarkdown(`\n\nConflicts: ${conflicts}`);
+  if (staged) tooltip.appendMarkdown(`\n\nStaged: ${staged}`);
+  if (unstaged) tooltip.appendMarkdown(`\n\nUnstaged: ${unstaged}`);
+  if (untracked) tooltip.appendMarkdown(`\n\nUntracked: ${untracked}`);
+  if (ahead || behind) tooltip.appendMarkdown(`\n\nSync: ${ahead ? `↑${ahead}` : ''}${ahead && behind ? ' ' : ''}${behind ? `↓${behind}` : ''}`);
+  return tooltip;
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const git = await GitService.discover();
   if (!git) {
@@ -68,7 +98,7 @@ class AbstractiveScmController implements vscode.Disposable {
     this.stashes = new StashesProvider(git);
     this.toolWindow = new GitToolWindowProvider(context, git);
     this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-    this.statusBar.command = 'abstractiveScm.checkoutBranch';
+    this.statusBar.command = 'abstractiveScm.openToolWindow';
 
     this.disposables.push(
       this.statusBar,
@@ -143,12 +173,11 @@ class AbstractiveScmController implements vscode.Disposable {
       this.toolWindow.refresh();
       const branch = await this.git.branchStatus();
       const changes = await this.git.status();
-      const sync = [branch.behind ? `↓${branch.behind}` : '', branch.ahead ? `↑${branch.ahead}` : ''].filter(Boolean).join(' ');
       this.changesTree.badge = changes.length
         ? { value: changes.length, tooltip: `${changes.length} local change${changes.length === 1 ? '' : 's'}` }
         : undefined;
-      this.statusBar.text = `$(git-branch) ${branch.branch}${sync ? ` ${sync}` : ''}  $(diff) ${changes.length}`;
-      this.statusBar.tooltip = path.basename(this.git.root);
+      this.statusBar.text = statusBarText(changes, branch.ahead, branch.behind);
+      this.statusBar.tooltip = statusBarTooltip(path.basename(this.git.root), branch.branch, changes, branch.ahead, branch.behind);
       this.statusBar.show();
     });
   }

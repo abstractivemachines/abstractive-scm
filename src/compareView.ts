@@ -11,7 +11,7 @@ export async function showBranchComparison(context: vscode.ExtensionContext, git
     { enableScripts: false }
   );
 
-  panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'activity-graph.svg');
+  panel.iconPath = vscode.Uri.joinPath(context.extensionUri, 'media', 'activity-branch.svg');
   panel.webview.html = renderComparisonHtml(comparison);
 }
 

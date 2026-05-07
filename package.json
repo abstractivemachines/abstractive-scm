@@ -217,14 +217,14 @@
         {
           "id": "abstractiveScm",
           "title": "Abstractive SCM",
-          "icon": "media/activity-graph.svg"
+          "icon": "media/activity-branch.svg"
         }
       ],
       "panel": [
         {
           "id": "abstractiveScmPanel",
           "title": "SCM",
-          "icon": "media/activity-graph.svg"
+          "icon": "media/activity-branch.svg"
         }
       ]
     },

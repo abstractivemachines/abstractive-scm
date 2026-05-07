@@ -1325,8 +1325,10 @@ function renderHtml(webview: vscode.Webview): string {
       color: var(--vscode-descriptionForeground);
     }
     .details {
+      min-height: 134px;
       max-height: 180px;
       overflow: auto;
+      scrollbar-gutter: stable;
       padding: 8px 12px;
       border-top: 1px solid var(--vscode-sideBar-border);
       background: var(--vscode-sideBar-background);
@@ -1337,11 +1339,16 @@ function renderHtml(webview: vscode.Webview): string {
       white-space: nowrap;
       font-weight: 600;
       margin-bottom: 4px;
+      min-height: 17px;
     }
     .details-meta {
       color: var(--vscode-descriptionForeground);
       font-size: 12px;
       line-height: 1.45;
+      min-height: 18px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .details-body {
       margin-top: 6px;
@@ -1352,8 +1359,9 @@ function renderHtml(webview: vscode.Webview): string {
     }
     .details-row {
       display: grid;
-      grid-template-columns: 86px minmax(0, 1fr);
+      grid-template-columns: 92px minmax(0, 1fr);
       column-gap: 8px;
+      min-height: 18px;
       line-height: 1.45;
       font-size: 12px;
     }
@@ -2420,7 +2428,6 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function detailsRow(label, value) {
-      if (!value) return '';
       return '<div class="details-row"><div class="details-label">' + escapeHtml(label) + '</div><div class="details-value">' + escapeHtml(value) + '</div></div>';
     }
 
