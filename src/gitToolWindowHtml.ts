@@ -2522,7 +2522,7 @@ export function renderHtml(webview: vscode.Webview): string {
         if (state.branchFilter === 'local' && branch.remote) return false;
         if (state.branchFilter === 'remote' && !branch.remote) return false;
         if (!query) return true;
-        return [branch.name, branch.upstream, branch.hash, branch.subject]
+        return [branch.name]
           .some((value) => String(value || '').toLowerCase().includes(query));
       });
     }
