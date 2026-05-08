@@ -3,7 +3,7 @@ import { GitService } from './git';
 import { gitContentUri } from './gitContentProvider';
 import { changeLabel, GitChange, GitCommit, GitCommitFile } from './models';
 
-type ToolWindowMode = 'log' | 'outgoing' | 'incoming' | 'files' | 'changes';
+type ToolWindowMode = 'log' | 'outgoing' | 'incoming' | 'files' | 'changes' | 'history';
 
 type WebviewMessage =
   | { type: 'ready' }
@@ -50,6 +50,7 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
   private mode: ToolWindowMode = 'log';
   private compareBaseBranch = 'HEAD';
   private compareBranch = 'HEAD';
+  private historyFilePath = '';
 
   constructor(private readonly context: vscode.ExtensionContext, private readonly git: GitService) {}
 
@@ -68,6 +69,13 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
     if (this.view) {
       void this.loadInitial();
     }
+  }
+
+  async showFileHistory(filePath: string): Promise<void> {
+    this.mode = 'history';
+    this.historyFilePath = filePath;
+    await vscode.commands.executeCommand('workbench.view.extension.abstractiveScmPanel');
+    await this.loadInitial();
   }
 
   private async handleMessage(message: WebviewMessage): Promise<void> {
@@ -186,7 +194,8 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
         branches,
         currentBranch,
         selectedBranch,
-        mode: this.mode
+        mode: this.mode,
+        historyFilePath: this.historyFilePath
       });
       await this.loadBranchModeData(selectedBranch);
     });
@@ -213,6 +222,10 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       await this.loadCompareFiles(branch);
       return;
     }
+    if (this.mode === 'history') {
+      await this.loadFileHistory();
+      return;
+    }
 
     const commits = await this.loadCommitsForBranch(branch);
     this.post({ type: 'branchData', selectedBranch: branch, mode: this.mode, commits });
@@ -221,7 +234,10 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
 
   private async loadCommit(hash: string): Promise<void> {
     await this.withErrorBoundary(async () => {
-      const files = await this.git.commitFiles(hash);
+      const commitFiles = await this.git.commitFiles(hash);
+      const files = this.mode === 'history' && this.historyFilePath
+        ? historyCommitFiles(commitFiles, this.historyFilePath)
+        : commitFiles;
       const commit = await this.git.commitDetails(hash);
       this.post({ type: 'commitFiles', selectedCommit: hash, files });
       if (commit) {
@@ -229,6 +245,9 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       }
       if (!files[0]) {
         this.post({ type: 'patch', selectedFile: undefined, patch: '' });
+      } else if (this.mode === 'history') {
+        const patch = await this.git.commitFilePatch(hash, files[0]);
+        this.post({ type: 'patch', selectedFile: files[0].filePath, patch });
       }
     });
   }
@@ -270,6 +289,12 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
     if (!changes[0]) {
       this.post({ type: 'patch', selectedFile: undefined, patch: '' });
     }
+  }
+
+  private async loadFileHistory(): Promise<void> {
+    const commits = this.historyFilePath ? await this.git.fileHistory(this.historyFilePath) : [];
+    this.post({ type: 'fileHistory', mode: this.mode, filePath: this.historyFilePath, commits });
+    await this.loadFirstCommit(commits);
   }
 
   private async loadLocalChangePatch(change: GitChange): Promise<void> {
@@ -1697,6 +1722,7 @@ function renderHtml(webview: vscode.Webview): string {
       mode: persistedState.mode || 'log',
       compareBaseBranch: '',
       compareBranch: '',
+      historyFilePath: persistedState.historyFilePath || '',
       commits: [],
       selectedCommit: persistedState.selectedCommit || '',
       files: [],
@@ -1837,6 +1863,7 @@ function renderHtml(webview: vscode.Webview): string {
         state.files = [];
         state.compareBaseBranch = '';
         state.compareBranch = '';
+        state.historyFilePath = message.historyFilePath || state.historyFilePath || '';
         state.selectedCommitDetails = undefined;
         state.patch = '';
         setFilesLoading(false);
@@ -1857,6 +1884,7 @@ function renderHtml(webview: vscode.Webview): string {
         state.files = [];
         state.compareBaseBranch = '';
         state.compareBranch = '';
+        state.historyFilePath = '';
         const restoredCommit = state.selectedCommit && state.commits.some((commit) => commit.hash === state.selectedCommit)
           ? state.selectedCommit
           : '';
@@ -1880,6 +1908,7 @@ function renderHtml(webview: vscode.Webview): string {
         state.mode = message.mode || 'files';
         state.compareBaseBranch = message.baseBranch || '';
         state.compareBranch = message.compareBranch || '';
+        state.historyFilePath = '';
         state.commits = [];
         state.files = message.files || [];
         state.selectedCommit = '';
@@ -1902,6 +1931,7 @@ function renderHtml(webview: vscode.Webview): string {
       }
       if (message.type === 'localChanges') {
         state.mode = message.mode || 'changes';
+        state.historyFilePath = '';
         state.commits = [];
         state.files = message.files || [];
         state.selectedCommit = '';
@@ -1920,6 +1950,28 @@ function renderHtml(webview: vscode.Webview): string {
         if (restoredFile) {
           const change = state.files.find((item) => fileKey(item) === restoredFile);
           if (change) vscode.postMessage({ type: 'selectLocalChange', change });
+        }
+      }
+      if (message.type === 'fileHistory') {
+        state.mode = message.mode || 'history';
+        state.historyFilePath = message.filePath || '';
+        state.commits = message.commits || [];
+        state.files = [];
+        state.selectedCommitDetails = undefined;
+        state.patch = '';
+        setFilesLoading(false);
+        const restoredCommit = state.selectedCommit && state.commits.some((commit) => commit.hash === state.selectedCommit)
+          ? state.selectedCommit
+          : (state.commits[0]?.hash || '');
+        state.selectedCommit = restoredCommit;
+        state.selectedFile = '';
+        state.currentHunkIndex = -1;
+        state.collapsedHunks = [];
+        state.error = '';
+        render();
+        focusSelected();
+        if (restoredCommit) {
+          vscode.postMessage({ type: 'selectCommit', hash: restoredCommit });
         }
       }
       if (message.type === 'commitFiles') {
@@ -1996,6 +2048,9 @@ function renderHtml(webview: vscode.Webview): string {
     function renderChrome() {
       renderActivePane();
       titleEl.textContent = state.selectedBranch ? 'SCM: ' + state.selectedBranch : 'SCM';
+      if (state.mode === 'history' && state.historyFilePath) {
+        titleEl.textContent = 'History: ' + state.historyFilePath;
+      }
       loadingEl.textContent = state.loading ? 'Loading...' : '';
       errorEl.textContent = state.error || '';
       const branch = selectedBranch();
@@ -2123,13 +2178,8 @@ function renderHtml(webview: vscode.Webview): string {
       header.className = 'commit-header';
       header.setAttribute('role', 'row');
       applyCommitColumns(header);
-      header.append(
-        commitHeaderCell('Graph', 0),
-        commitHeaderCell('Hash', 1),
-        commitHeaderCell('Author', 2, 'author-col'),
-        commitHeaderCell('Date', 3, 'date-col'),
-        commitHeaderCell('Subject', 4)
-      );
+      const columns = commitColumnDefinitions();
+      header.append(...columns.map((column, index) => commitHeaderCell(column.label, index, column.extraClass)));
       const graphRows = buildGraphRows(commits);
       commitsEl.replaceChildren(header, ...commits.map((commit, index) => {
         const selected = commit.hash === state.selectedCommit;
@@ -2137,7 +2187,9 @@ function renderHtml(webview: vscode.Webview): string {
         applyCommitColumns(row);
         row.setAttribute('aria-rowindex', String(index + 2));
         row.title = commit.hash + '\\n' + commit.author;
-        row.innerHTML = '<div class="graph" role="gridcell" aria-label="Commit graph">' + renderGraph(graphRows.get(commit.hash), selected) + '</div>' +
+        row.innerHTML = (state.mode === 'history'
+          ? ''
+          : '<div class="graph" role="gridcell" aria-label="Commit graph">' + renderGraph(graphRows.get(commit.hash), selected) + '</div>') +
           '<div class="hash" role="gridcell">' + escapeHtml(commit.shortHash) + '</div>' +
           '<div class="author" role="gridcell">' + escapeHtml(commit.author) + '</div>' +
           '<div class="date" role="gridcell">' + escapeHtml(formatDate(commit.date)) + '</div>' +
@@ -2390,6 +2442,11 @@ function renderHtml(webview: vscode.Webview): string {
             '<div class="details-meta">' + escapeHtml(branchComparisonLabel()) + '</div>';
           return;
         }
+        if (state.mode === 'history') {
+          detailsEl.innerHTML = '<div class="details-title">Selection Details</div>' +
+            '<div class="details-meta">' + escapeHtml(state.historyFilePath ? 'History: ' + state.historyFilePath : 'No file history loaded.') + '</div>';
+          return;
+        }
         detailsEl.innerHTML = '<div class="details-title">Selection Details</div>' +
           '<div class="details-meta">Select a file to inspect its diff details.</div>';
         return;
@@ -2414,6 +2471,18 @@ function renderHtml(webview: vscode.Webview): string {
           detailsRow('Original', file.originalPath) +
           detailsRow('Base', state.compareBaseBranch) +
           detailsRow('Compare', state.compareBranch);
+        return;
+      }
+
+      if (state.mode === 'history') {
+        const commit = state.selectedCommitDetails;
+        detailsEl.innerHTML = '<div class="details-title" title="' + escapeHtml(file.filePath) + '">' + escapeHtml(file.filePath) + '</div>' +
+          '<div class="details-meta">' + escapeHtml(commit?.subject || 'Selected file revision') + '</div>' +
+          detailsRow('Status', fileStatusLabel(file)) +
+          detailsRow('Lines', patchSummary()) +
+          detailsRow('Commit', commit ? commit.shortHash : state.selectedCommit.slice(0, 12)) +
+          detailsRow('Original', file.originalPath) +
+          detailsRow('History', state.historyFilePath);
         return;
       }
 
@@ -2545,7 +2614,8 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function minColumnWidth(index) {
-      return [54, 54, 72, 92, 160][index] || 80;
+      const widths = state.mode === 'history' ? [54, 72, 92, 160] : [54, 54, 72, 92, 160];
+      return widths[index] || 80;
     }
 
     function applyCommitColumns(element) {
@@ -2557,7 +2627,19 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function commitColumnsTemplate() {
-      return state.commitColumns.map((width) => Math.round(width) + 'px').join(' ');
+      const widths = state.mode === 'history' ? state.commitColumns.slice(1) : state.commitColumns;
+      return widths.map((width) => Math.round(width) + 'px').join(' ');
+    }
+
+    function commitColumnDefinitions() {
+      const columns = [
+        { label: 'Graph', extraClass: '' },
+        { label: 'Hash', extraClass: '' },
+        { label: 'Author', extraClass: 'author-col' },
+        { label: 'Date', extraClass: 'date-col' },
+        { label: 'Subject', extraClass: '' }
+      ];
+      return state.mode === 'history' ? columns.slice(1) : columns;
     }
 
     function buildGraphRows(commits) {
@@ -3458,6 +3540,9 @@ function renderHtml(webview: vscode.Webview): string {
           ? 'Choose another branch to see incoming commits.'
           : 'No commits from ' + state.selectedBranch + ' are missing from current branch.';
       }
+      if (state.mode === 'history') {
+        return state.historyFilePath ? 'No history found for ' + state.historyFilePath + '.' : 'No file history loaded.';
+      }
       return 'No commits.';
     }
 
@@ -3535,6 +3620,7 @@ function renderHtml(webview: vscode.Webview): string {
         selectedBranch: state.selectedBranch,
         selectedCommit: state.selectedCommit,
         selectedFile: state.selectedFile,
+        historyFilePath: state.historyFilePath,
         branchSearch: state.branchSearch,
         branchFilter: state.branchFilter,
         commitSearch: state.commitSearch,
@@ -3582,6 +3668,11 @@ function renderHtml(webview: vscode.Webview): string {
   </script>
 </body>
 </html>`;
+}
+
+function historyCommitFiles(files: GitCommitFile[], filePath: string): GitCommitFile[] {
+  const match = files.find((file) => file.filePath === filePath || file.originalPath === filePath);
+  return match ? [match] : [{ status: 'M', filePath }];
 }
 
 function getNonce(): string {

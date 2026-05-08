@@ -303,7 +303,7 @@ export class GitService {
     return parseCommitDetails(output);
   }
 
-  async fileHistory(filePath: string, limit: number): Promise<GitCommit[]> {
+  async fileHistory(filePath: string, limit?: number): Promise<GitCommit[]> {
     if (!(await this.hasCommits())) {
       return [];
     }
@@ -311,7 +311,7 @@ export class GitService {
     const output = await runGit(this.root, [
       'log',
       '--follow',
-      `-n${limit}`,
+      ...(limit ? [`-n${limit}`] : []),
       '--date=iso-strict',
       '--pretty=format:%H%x1f%h%x1f%an%x1f%ad%x1f%D%x1f%s%x1f%P',
       '--',

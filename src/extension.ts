@@ -491,28 +491,7 @@ class AbstractiveScmController implements vscode.Disposable {
     }
 
     await this.handleGitErrors(async () => {
-      const limit = vscode.workspace.getConfiguration('abstractiveScm').get<number>('maxLogEntries', 75);
-      const commits = await this.git.fileHistory(filePath, limit);
-      if (commits.length === 0) {
-        vscode.window.showInformationMessage(`No history found for ${filePath}.`);
-        return;
-      }
-
-      const pick = await vscode.window.showQuickPick(
-        commits.map((commit) => ({
-          label: `${commit.shortHash} ${commit.subject}`,
-          description: commit.author,
-          detail: new Date(commit.date).toLocaleString(),
-          commit
-        })),
-        { title: `History: ${filePath}`, placeHolder: 'Select a commit to diff this file' }
-      );
-
-      if (pick) {
-        const files = await this.git.commitFiles(pick.commit.hash);
-        const file = files.find((item) => item.filePath === filePath || item.originalPath === filePath) ?? { status: 'M', filePath };
-        await this.openCommitFileDiff(pick.commit, file);
-      }
+      await this.toolWindow.showFileHistory(filePath);
     });
   }
 

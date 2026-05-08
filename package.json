@@ -2,7 +2,7 @@
   "name": "abstractive-scm",
   "displayName": "Abstractive SCM",
   "description": "IntelliJ-inspired SCM workflows for VS Code: richer Git changes, branches, log, diffs, and commit actions.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "local",
   "license": "MIT",
   "engines": {
@@ -458,6 +458,13 @@
         {
           "command": "abstractiveScm.showFileHistory",
           "when": "resourceScheme == file",
+          "group": "navigation@10"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "abstractiveScm.showFileHistory",
+          "when": "resourceScheme == file && !explorerResourceIsFolder",
           "group": "navigation@10"
         }
       ]
