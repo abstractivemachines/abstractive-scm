@@ -60,7 +60,7 @@ export class ChangesProvider implements vscode.TreeDataProvider<ChangeNodeType> 
     if (element instanceof ChangelistNode) {
       return bucketOrder
         .map((bucket) => new ChangeGroupNode(bucket, element.name, element.changes.filter((change) => change.bucket === bucket)))
-        .filter((group) => group.changes.length > 0 || group.bucket === 'conflicts');
+        .filter((group) => group.changes.length > 0);
     }
 
     if (element instanceof ChangeGroupNode) {

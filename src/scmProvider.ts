@@ -55,7 +55,7 @@ export class AbstractiveScmProvider implements vscode.Disposable {
 
     for (const bucket of Object.keys(buckets) as ChangeBucket[]) {
       this.groups[bucket].resourceStates = buckets[bucket];
-      this.groups[bucket].hideWhenEmpty = bucket !== 'conflicts';
+      this.groups[bucket].hideWhenEmpty = true;
     }
 
     const summary = Object.values(buckets).reduce((total, states) => total + states.length, 0);
