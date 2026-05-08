@@ -39,9 +39,21 @@ https://github.com/abstractivemachines/abstractive-scm.git
 Current uncommitted work is limited to:
 
 - `src/gitToolWindow.ts`
+- `src/gitToolWindowHtml.ts`
+- `src/gitToolWindowGraphScript.ts`
 - `HANDOFF.md`
 
-It contains the in-progress bottom-panel commit graph polish:
+The graph polish was committed and pushed as:
+
+- `0963038 Refine bottom panel commit graph`
+
+Current uncommitted work is the first webview refactor:
+
+- `src/gitToolWindow.ts` now focuses on the VS Code webview provider, Git operations, and message handling.
+- `src/gitToolWindowHtml.ts` owns the webview HTML/CSS/script template and nonce/CSP setup.
+- `src/gitToolWindowGraphScript.ts` owns the graph-specific webview script fragment.
+
+The committed bottom-panel graph polish includes:
 
 - Replaced per-row graph SVG snippets with one continuous SVG overlay across commit rows.
 - The graph overlay now keeps persistent render state and redraws through `requestAnimationFrame`.
