@@ -210,6 +210,9 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
 
   private async setMode(mode: ToolWindowMode): Promise<void> {
     this.mode = mode;
+    if (mode !== 'history') {
+      this.historyFilePath = '';
+    }
     await this.loadBranch(this.selectedBranch ?? this.currentBranch);
   }
 
@@ -980,6 +983,47 @@ function renderHtml(webview: vscode.Webview): string {
       color: var(--vscode-button-foreground);
       background: var(--vscode-button-background);
     }
+    .history-chip {
+      display: inline-grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      flex: 0 1 260px;
+      min-width: 0;
+      max-width: 260px;
+      height: 20px;
+      padding: 0 2px 0 7px;
+      color: var(--vscode-badge-foreground);
+      background: var(--vscode-badge-background);
+      border: 1px solid var(--vscode-button-border, transparent);
+      border-radius: 3px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: none;
+    }
+    .history-chip[hidden] {
+      display: none;
+    }
+    .history-chip-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .pane-title .history-close {
+      width: 18px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      border: 0;
+      opacity: 0.8;
+      line-height: 16px;
+    }
+    .pane-title .history-close:hover {
+      opacity: 1;
+      background: color-mix(in srgb, currentColor 16%, transparent);
+    }
     .branch-title {
       display: grid;
       grid-template-columns: auto minmax(70px, 1fr) auto auto auto;
@@ -989,8 +1033,10 @@ function renderHtml(webview: vscode.Webview): string {
       grid-template-columns: auto minmax(70px, 1fr) auto auto auto auto auto;
     }
     .commit-title {
-      display: grid;
-      grid-template-columns: auto auto auto auto auto auto minmax(90px, 1fr);
+      display: flex;
+    }
+    .commit-title input {
+      flex: 1 1 90px;
     }
     .diff-title {
       display: grid;
@@ -1001,6 +1047,9 @@ function renderHtml(webview: vscode.Webview): string {
     .diff {
       overflow: auto;
       min-height: 0;
+    }
+    .grid {
+      position: relative;
     }
     .list {
       position: relative;
@@ -1178,17 +1227,34 @@ function renderHtml(webview: vscode.Webview): string {
       overflow: hidden;
       text-align: left;
     }
-    .graph-lanes {
-      display: block;
-      width: max-content;
-      min-width: 28px;
-      height: 24px;
+    .commit-row.has-graph .hash {
+      grid-column: 2;
+    }
+    .commit-row.has-graph .author {
+      grid-column: 3;
+    }
+    .commit-row.has-graph .date {
+      grid-column: 4;
+    }
+    .commit-row.has-graph .subject {
+      grid-column: 5;
+    }
+    .commit-graph-overlay {
+      position: absolute;
+      z-index: 1;
+      pointer-events: none;
       overflow: visible;
     }
     .graph-line {
-      stroke-width: 2;
+      stroke-width: 2.15;
       stroke-linecap: round;
-      opacity: 0.76;
+      stroke-linejoin: round;
+      fill: none;
+      opacity: 0.72;
+    }
+    .graph-line.primary {
+      opacity: 1;
+      stroke-width: 2.7;
     }
     .graph-node {
       fill: var(--vscode-editor-background);
@@ -1198,19 +1264,11 @@ function renderHtml(webview: vscode.Webview): string {
       fill: currentColor;
       opacity: 0;
     }
-    .commit-row:hover .graph-line,
-    .commit-row.selected .graph-line {
-      opacity: 1;
-      stroke-width: 2.4;
-    }
-    .commit-row:hover .graph-node,
-    .commit-row.selected .graph-node {
-      stroke-width: 3;
-    }
-    .commit-row.selected .graph-node {
+    .graph-node.selected {
       fill: color-mix(in srgb, currentColor 16%, var(--vscode-editor-background));
+      stroke-width: 2.9;
     }
-    .commit-row.selected .graph-node-inner {
+    .graph-node-inner.selected {
       opacity: 1;
     }
     .author,
@@ -1651,6 +1709,10 @@ function renderHtml(webview: vscode.Webview): string {
           <button data-mode="incoming" title="Show selected branch commits not in current branch">In</button>
           <button data-mode="files" title="Show aggregate changed files between current and selected branch">Files</button>
           <button data-mode="changes" title="Show local working tree changes">Local</button>
+          <span class="history-chip" id="historyChip" hidden>
+            <span class="history-chip-label" id="historyChipLabel"></span>
+            <button class="history-close" id="clearHistory" title="Return to branch log" aria-label="Return to branch log">x</button>
+          </span>
           <input id="commitSearch" type="search" aria-label="Search commits" placeholder="Search">
         </div>
         <div class="commit-summary" id="commitSummary" hidden></div>
@@ -1715,6 +1777,7 @@ function renderHtml(webview: vscode.Webview): string {
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const persistedState = vscode.getState() || {};
+    const layoutVersion = 2;
     const state = {
       branches: [],
       currentBranch: '',
@@ -1738,6 +1801,7 @@ function renderHtml(webview: vscode.Webview): string {
       filesLoadingTimer: undefined,
       pendingFilesCommit: '',
       contextMenuType: '',
+      hoveredCommit: '',
       currentHunkIndex: -1,
       activePane: persistedState.activePane || 'commits',
       branchSearch: persistedState.branchSearch || '',
@@ -1745,9 +1809,9 @@ function renderHtml(webview: vscode.Webview): string {
       commitSearch: persistedState.commitSearch || '',
       fileSearch: persistedState.fileSearch || '',
       fileFilter: persistedState.fileFilter || 'all',
+      graphLaneCount: 1,
       paneColumns: validWidths(persistedState.paneColumns, [180, 560, 280, 520], 4),
-      commitColumns: validWidths(persistedState.commitColumns, [86, 74, 120, 142, 360], 5)
-        .map((width, index) => Math.max(width, [54, 54, 72, 92, 160][index] || 80))
+      commitColumns: normalizedCommitColumns(persistedState.commitColumns, persistedState.layoutVersion)
     };
 
     const layoutEl = document.querySelector('.layout');
@@ -1767,6 +1831,9 @@ function renderHtml(webview: vscode.Webview): string {
     const contextMenuEl = document.getElementById('contextMenu');
     const helpOverlayEl = document.getElementById('helpOverlay');
     const paneEls = Array.from(document.querySelectorAll('[data-pane]'));
+    let graphRenderFrame = 0;
+    let graphCommits = [];
+    let graphRows = new Map();
 
     document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
     document.getElementById('checkoutBranch').addEventListener('click', checkoutSelectedBranch);
@@ -1789,12 +1856,18 @@ function renderHtml(webview: vscode.Webview): string {
     document.getElementById('nextFile').addEventListener('click', () => navigateFile(1));
     document.getElementById('prevHunk').addEventListener('click', () => navigateHunk(-1));
     document.getElementById('nextHunk').addEventListener('click', () => navigateHunk(1));
+    document.getElementById('clearHistory').addEventListener('click', clearHistoryMode);
     contextMenuEl.addEventListener('click', handleContextMenuClick);
     helpOverlayEl.addEventListener('click', (event) => {
       if (event.target === helpOverlayEl) hideHelp();
     });
     document.addEventListener('click', hideContextMenu);
     document.addEventListener('scroll', hideContextMenu, true);
+    window.addEventListener('resize', scheduleCommitGraphOverlay);
+    if (typeof ResizeObserver !== 'undefined') {
+      const graphResizeObserver = new ResizeObserver(() => scheduleCommitGraphOverlay());
+      graphResizeObserver.observe(commitsEl);
+    }
     branchSearchEl.value = state.branchSearch;
     branchSearchEl.addEventListener('input', () => {
       state.branchSearch = branchSearchEl.value;
@@ -1812,6 +1885,9 @@ function renderHtml(webview: vscode.Webview): string {
     document.querySelectorAll('[data-mode]').forEach((button) => {
       button.addEventListener('click', () => {
         state.mode = button.dataset.mode;
+        if (state.mode !== 'history') {
+          state.historyFilePath = '';
+        }
         saveLayoutState();
         vscode.postMessage({ type: 'setMode', mode: state.mode });
         renderChrome();
@@ -1955,6 +2031,8 @@ function renderHtml(webview: vscode.Webview): string {
       if (message.type === 'fileHistory') {
         state.mode = message.mode || 'history';
         state.historyFilePath = message.filePath || '';
+        state.commitSearch = '';
+        commitSearchEl.value = '';
         state.commits = message.commits || [];
         state.files = [];
         state.selectedCommitDetails = undefined;
@@ -2049,7 +2127,7 @@ function renderHtml(webview: vscode.Webview): string {
       renderActivePane();
       titleEl.textContent = state.selectedBranch ? 'SCM: ' + state.selectedBranch : 'SCM';
       if (state.mode === 'history' && state.historyFilePath) {
-        titleEl.textContent = 'History: ' + state.historyFilePath;
+        titleEl.textContent = 'SCM: ' + state.historyFilePath;
       }
       loadingEl.textContent = state.loading ? 'Loading...' : '';
       errorEl.textContent = state.error || '';
@@ -2079,6 +2157,12 @@ function renderHtml(webview: vscode.Webview): string {
       document.querySelectorAll('[data-mode]').forEach((button) => {
         button.classList.toggle('active', button.dataset.mode === state.mode);
       });
+      const historyChip = document.getElementById('historyChip');
+      const historyChipLabel = document.getElementById('historyChipLabel');
+      const showingHistory = state.mode === 'history' && Boolean(state.historyFilePath);
+      historyChip.hidden = !showingHistory;
+      historyChip.title = showingHistory ? 'Viewing file history for ' + state.historyFilePath : '';
+      historyChipLabel.textContent = showingHistory ? 'History: ' + state.historyFilePath : '';
       document.querySelectorAll('[data-file-filter]').forEach((button) => {
         button.classList.toggle('active', button.dataset.fileFilter === state.fileFilter);
       });
@@ -2155,10 +2239,12 @@ function renderHtml(webview: vscode.Webview): string {
 
     function renderCommits() {
       if (state.mode === 'changes') {
+        clearCommitGraphOverlay();
         commitsEl.innerHTML = '<div class="empty">' + escapeHtml(localChangesSummary()) + '</div>';
         return;
       }
       if (state.mode === 'files') {
+        clearCommitGraphOverlay();
         const label = state.compareBaseBranch && state.compareBranch
           ? 'Changed files: ' + state.compareBaseBranch + '...' + state.compareBranch
           : 'Changed files mode';
@@ -2166,36 +2252,47 @@ function renderHtml(webview: vscode.Webview): string {
         return;
       }
       if (!state.commits.length) {
+        clearCommitGraphOverlay();
         commitsEl.innerHTML = '<div class="empty">' + escapeHtml(emptyCommitMessage()) + '</div>';
         return;
       }
       const commits = filteredCommits();
       if (!commits.length) {
+        clearCommitGraphOverlay();
         commitsEl.innerHTML = '<div class="empty">No commits match the filter.</div>';
         return;
       }
+      graphCommits = state.mode === 'history' ? [] : commits;
+      graphRows = state.mode === 'history' ? new Map() : buildGraphRows(commits);
+      state.graphLaneCount = graphLaneCount(graphRows);
       const header = document.createElement('div');
       header.className = 'commit-header';
       header.setAttribute('role', 'row');
       applyCommitColumns(header);
       const columns = commitColumnDefinitions();
-      header.append(...columns.map((column, index) => commitHeaderCell(column.label, index, column.extraClass)));
-      const graphRows = buildGraphRows(commits);
+      header.append(...columns.map((column, index) => commitHeaderCell(column.label, column.widthIndex, column.extraClass, index, columns.length)));
       commitsEl.replaceChildren(header, ...commits.map((commit, index) => {
         const selected = commit.hash === state.selectedCommit;
-        const row = selectableRow('commit-row row' + rowState('commits', selected), 'row', selected);
+        const row = selectableRow('commit-row row' + (state.mode === 'history' ? '' : ' has-graph') + rowState('commits', selected), 'row', selected);
         applyCommitColumns(row);
         row.setAttribute('aria-rowindex', String(index + 2));
         row.title = commit.hash + '\\n' + commit.author;
-        row.innerHTML = (state.mode === 'history'
-          ? ''
-          : '<div class="graph" role="gridcell" aria-label="Commit graph">' + renderGraph(graphRows.get(commit.hash), selected) + '</div>') +
-          '<div class="hash" role="gridcell">' + escapeHtml(commit.shortHash) + '</div>' +
+        row.innerHTML = '<div class="hash" role="gridcell">' + escapeHtml(commit.shortHash) + '</div>' +
           '<div class="author" role="gridcell">' + escapeHtml(commit.author) + '</div>' +
           '<div class="date" role="gridcell">' + escapeHtml(formatDate(commit.date)) + '</div>' +
           '<div class="subject" role="gridcell"><div class="subject-line">' + renderRefLabels(commit.refs) +
           '<span class="subject-text">' + escapeHtml(commit.subject) + '</span></div></div>';
         row.addEventListener('focus', () => setActivePane('commits', false));
+        row.addEventListener('mouseenter', () => {
+          if (state.mode === 'history') return;
+          state.hoveredCommit = commit.hash;
+          scheduleCommitGraphOverlay();
+        });
+        row.addEventListener('mouseleave', () => {
+          if (state.hoveredCommit !== commit.hash) return;
+          state.hoveredCommit = '';
+          scheduleCommitGraphOverlay();
+        });
         row.addEventListener('click', () => selectCommit(commit.hash));
         row.addEventListener('contextmenu', (event) => {
           selectCommit(commit.hash);
@@ -2203,6 +2300,9 @@ function renderHtml(webview: vscode.Webview): string {
         });
         return row;
       }));
+      if (state.mode !== 'history') {
+        scheduleCommitGraphOverlay();
+      }
     }
 
     function renderFiles() {
@@ -2564,24 +2664,25 @@ function renderHtml(webview: vscode.Webview): string {
 
     function applyPaneColumns() {
       layoutEl.style.setProperty('--pane-columns', paneColumnsTemplate());
+      scheduleCommitGraphOverlay();
     }
 
     function paneColumnsTemplate() {
       return state.paneColumns.map((width) => Math.round(width) + 'px').join(' 0px ');
     }
 
-    function commitHeaderCell(label, index, extraClass = '') {
+    function commitHeaderCell(label, widthIndex, extraClass = '', visualIndex = widthIndex, totalColumns = state.commitColumns.length) {
       const cell = document.createElement('div');
       cell.className = ('commit-column ' + extraClass).trim();
       cell.setAttribute('role', 'columnheader');
       cell.textContent = label;
-      if (index < state.commitColumns.length - 1) {
+      if (visualIndex < totalColumns - 1) {
         const handle = document.createElement('span');
         handle.className = 'resize-handle';
         handle.title = 'Resize column';
         handle.setAttribute('role', 'separator');
         handle.setAttribute('aria-orientation', 'vertical');
-        handle.addEventListener('pointerdown', (event) => startColumnResize(event, index, handle));
+        handle.addEventListener('pointerdown', (event) => startColumnResize(event, widthIndex, handle));
         cell.append(handle);
       }
       return cell;
@@ -2599,13 +2700,14 @@ function renderHtml(webview: vscode.Webview): string {
         const next = Math.max(minColumnWidth(index), startWidth + moveEvent.clientX - startX);
         state.commitColumns[index] = next;
         applyCommitColumnsToGrid();
+        scheduleCommitGraphOverlay();
       };
       const stop = () => {
         handle.classList.remove('dragging');
         document.removeEventListener('pointermove', move);
         document.removeEventListener('pointerup', stop);
         saveLayoutState();
-        renderCommits();
+        scheduleCommitGraphOverlay();
         focusSelected();
       };
 
@@ -2614,7 +2716,7 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function minColumnWidth(index) {
-      const widths = state.mode === 'history' ? [54, 72, 92, 160] : [54, 54, 72, 92, 160];
+      const widths = [72, 54, 72, 92, 160];
       return widths[index] || 80;
     }
 
@@ -2627,66 +2729,301 @@ function renderHtml(webview: vscode.Webview): string {
     }
 
     function commitColumnsTemplate() {
-      const widths = state.mode === 'history' ? state.commitColumns.slice(1) : state.commitColumns;
+      const widths = state.mode === 'history' ? state.commitColumns.slice(1) : effectiveCommitColumns();
       return widths.map((width) => Math.round(width) + 'px').join(' ');
+    }
+
+    function effectiveCommitColumns() {
+      const widths = state.commitColumns.slice();
+      widths[0] = Math.max(widths[0], graphColumnWidth(state.graphLaneCount));
+      return widths;
+    }
+
+    function graphColumnWidth(laneCount) {
+      if (state.mode === 'history') return 0;
+      const lanes = Math.max(1, laneCount || 1);
+      if (lanes === 1) return 72;
+      return Math.min(320, Math.max(96, 28 + (lanes - 1) * 12));
     }
 
     function commitColumnDefinitions() {
       const columns = [
-        { label: 'Graph', extraClass: '' },
-        { label: 'Hash', extraClass: '' },
-        { label: 'Author', extraClass: 'author-col' },
-        { label: 'Date', extraClass: 'date-col' },
-        { label: 'Subject', extraClass: '' }
+        { label: 'Graph', widthIndex: 0, extraClass: '' },
+        { label: 'Hash', widthIndex: 1, extraClass: '' },
+        { label: 'Author', widthIndex: 2, extraClass: 'author-col' },
+        { label: 'Date', widthIndex: 3, extraClass: 'date-col' },
+        { label: 'Subject', widthIndex: 4, extraClass: '' }
       ];
       return state.mode === 'history' ? columns.slice(1) : columns;
     }
 
     function buildGraphRows(commits) {
       const lanes = [];
+      const laneColors = [];
+      let nextColor = 0;
       const rows = new Map();
       commits.forEach((commit) => {
         const parents = commitParents(commit);
         let before = lanes.slice();
+        const beforeColors = laneColors.slice();
         let lane = before.indexOf(commit.hash);
         const introduced = lane < 0;
         if (introduced) {
           lane = before.length;
           before.push(commit.hash);
+          beforeColors.push(nextColor);
+          nextColor += 1;
         }
 
         const after = before.slice();
-        const mergeLanes = [];
+        const afterColors = beforeColors.slice();
+        const commitColor = beforeColors[lane] ?? lane;
+        const parentTransitions = [];
         if (parents.length) {
-          after[lane] = parents[0];
+          const firstParent = parents[0];
+          const existingFirstParentLane = after.findIndex((item, index) => index !== lane && item === firstParent);
+          let firstParentLane = lane;
+          if (existingFirstParentLane >= 0) {
+            after[lane] = undefined;
+            afterColors[lane] = undefined;
+            firstParentLane = existingFirstParentLane;
+          } else {
+            after[lane] = firstParent;
+            afterColors[lane] = commitColor;
+          }
+          parentTransitions.push({ fromLane: lane, toLane: firstParentLane, colorIndex: commitColor });
           parents.slice(1).forEach((parent) => {
             const existing = after.indexOf(parent);
             if (existing >= 0) {
-              mergeLanes.push(existing);
+              parentTransitions.push({ fromLane: lane, toLane: existing, colorIndex: afterColors[existing] ?? existing });
               return;
             }
 
-            const inserted = mergeLanes.filter((item) => item > lane).length;
-            const insertAt = lane + 1 + inserted;
-            after.splice(insertAt, 0, parent);
-            mergeLanes.push(insertAt);
+            const emptyLane = after.findIndex((item, index) => index > lane && !item);
+            const insertAt = emptyLane >= 0 ? emptyLane : after.length;
+            after[insertAt] = parent;
+            afterColors[insertAt] = nextColor;
+            parentTransitions.push({ fromLane: lane, toLane: insertAt, colorIndex: nextColor });
+            nextColor += 1;
           });
         } else {
-          after.splice(lane, 1);
+          after[lane] = undefined;
+          afterColors[lane] = undefined;
         }
+        const continuationTransitions = after
+          .map((item, toLane) => {
+            const fromLane = before.indexOf(item);
+            return { item, fromLane, toLane, colorIndex: fromLane >= 0 ? beforeColors[fromLane] : afterColors[toLane] };
+          })
+          .filter((item) => item.item && item.fromLane >= 0 && item.fromLane === item.toLane);
 
         rows.set(commit.hash, {
           lane,
-          laneCount: Math.max(before.length, after.length, lane + 1, ...mergeLanes.map((item) => item + 1)),
-          colorIndex: lane,
-          topLanes: before.map((_, index) => index).filter((index) => !introduced || index !== lane),
-          bottomLanes: after.map((_, index) => index),
-          mergeLanes
+          laneCount: Math.max(
+            before.length,
+            after.length,
+            lane + 1,
+            ...parentTransitions.map((item) => Math.max(item.fromLane, item.toLane) + 1),
+            ...continuationTransitions.map((item) => Math.max(item.fromLane, item.toLane) + 1)
+          ),
+          colorIndex: commitColor,
+          topLanes: before
+            .map((item, index) => ({ active: Boolean(item), lane: index, colorIndex: beforeColors[index] }))
+            .filter((item) => item.active && (!introduced || item.lane !== lane)),
+          continuationTransitions,
+          parentTransitions
         });
 
-        lanes.splice(0, lanes.length, ...after);
+        lanes.splice(0, lanes.length, ...compactTrailingEmptyLanes(after));
+        laneColors.splice(0, laneColors.length, ...afterColors.slice(0, lanes.length));
       });
       return rows;
+    }
+
+    function compactTrailingEmptyLanes(lanes) {
+      let lastActive = lanes.length - 1;
+      while (lastActive >= 0 && !lanes[lastActive]) {
+        lastActive -= 1;
+      }
+      return lanes.slice(0, lastActive + 1);
+    }
+
+    function graphLaneCount(rows) {
+      let laneCount = 1;
+      rows.forEach((row) => {
+        laneCount = Math.max(laneCount, row.laneCount || 1);
+      });
+      return laneCount;
+    }
+
+    function clearCommitGraphOverlay() {
+      graphCommits = [];
+      graphRows = new Map();
+      state.graphLaneCount = 1;
+      if (graphRenderFrame) {
+        cancelAnimationFrame(graphRenderFrame);
+        graphRenderFrame = 0;
+      }
+      commitsEl.querySelector('.commit-graph-overlay')?.remove();
+    }
+
+    function scheduleCommitGraphOverlay() {
+      if (graphRenderFrame) {
+        cancelAnimationFrame(graphRenderFrame);
+      }
+      graphRenderFrame = requestAnimationFrame(() => {
+        graphRenderFrame = 0;
+        renderCommitGraphOverlay();
+      });
+    }
+
+    function renderCommitGraphOverlay() {
+      commitsEl.querySelector('.commit-graph-overlay')?.remove();
+      const commits = graphCommits;
+      const rows = Array.from(commitsEl.querySelectorAll('.commit-row.has-graph'));
+      const graphHeader = commitsEl.querySelector('.commit-header .commit-column');
+      if (!commits.length || !rows.length || !graphHeader) return;
+      const firstRow = rows[0];
+      const lastRow = rows[rows.length - 1];
+      const left = graphHeader.offsetLeft;
+      const top = firstRow.offsetTop;
+      const metrics = graphMetrics(graphRows, graphHeader.clientWidth);
+      const width = metrics.width;
+      const height = Math.max(24, lastRow.offsetTop + lastRow.clientHeight - top);
+      const x = (lane) => metrics.margin + lane * metrics.spacing;
+      const yFor = (row, ratio) => row.offsetTop - top + row.clientHeight * ratio;
+      const laneSegments = new Map();
+      const primaryLaneSegments = new Map();
+      const mergePaths = [];
+      const primaryMergePaths = [];
+      const nodes = [];
+      const addSegment = (target, lane, start, end, colorIndex = lane) => {
+        if (end <= start) return;
+        const key = lane + ':' + colorIndex;
+        const entry = target.get(key) || { lane, colorIndex, segments: [] };
+        entry.segments.push([start, end]);
+        target.set(key, entry);
+      };
+
+      commits.forEach((commit, index) => {
+        const row = graphRows.get(commit.hash);
+        const rowEl = rows[index];
+        if (!row || !rowEl) return;
+        const centerY = yFor(rowEl, 0.5);
+        const topY = yFor(rowEl, 0);
+        const bottomY = yFor(rowEl, 1);
+        const selected = commit.hash === state.selectedCommit;
+        const hovered = commit.hash === state.hoveredCommit;
+        const emphasized = selected || hovered;
+        row.topLanes.forEach((laneItem) => {
+          addSegment(laneSegments, laneItem.lane, topY, centerY, laneItem.colorIndex);
+          if (emphasized && laneItem.lane === row.lane) {
+            addSegment(primaryLaneSegments, laneItem.lane, topY, centerY, laneItem.colorIndex);
+          }
+        });
+        row.continuationTransitions.forEach((transition) => {
+          addSegment(laneSegments, transition.fromLane, centerY, bottomY, transition.colorIndex);
+          if (emphasized && transition.fromLane === row.lane) {
+            addSegment(primaryLaneSegments, transition.fromLane, centerY, bottomY, transition.colorIndex);
+          }
+        });
+        row.parentTransitions.forEach((transition) => {
+          if (transition.fromLane === transition.toLane) {
+            addSegment(laneSegments, transition.toLane, centerY, bottomY, transition.colorIndex);
+            if (emphasized) {
+              addSegment(primaryLaneSegments, transition.toLane, centerY, bottomY, transition.colorIndex);
+            }
+            return;
+          }
+          const path = graphTransitionPath(x(transition.fromLane), centerY, x(transition.toLane), bottomY);
+          mergePaths.push(graphPath(path, transition.colorIndex, false));
+          if (emphasized) {
+            primaryMergePaths.push(graphPath(path, transition.colorIndex, true));
+          }
+        });
+        const color = laneColor(row.colorIndex);
+        nodes.push(
+          (emphasized ? '<circle cx="' + x(row.lane) + '" cy="' + centerY + '" r="' + (selected ? metrics.selectedRingRadius : metrics.hoverRingRadius) + '" fill="none" stroke="' + color + '" stroke-width="' + (selected ? '1.25' : '1') + '" opacity="' + (selected ? '0.58' : '0.46') + '"/>' : '') +
+          '<circle class="graph-node' + (emphasized ? ' selected' : '') + '" cx="' + x(row.lane) + '" cy="' + centerY + '" r="' + (selected ? metrics.selectedNodeRadius : hovered ? metrics.hoverNodeRadius : metrics.nodeRadius) + '" stroke="' + color + '" style="color: ' + color + '"/>' +
+          '<circle class="graph-node-inner' + (emphasized ? ' selected' : '') + '" cx="' + x(row.lane) + '" cy="' + centerY + '" r="' + metrics.innerNodeRadius + '" style="color: ' + color + '"/>'
+        );
+      });
+
+      const paths = laneSegmentPaths(laneSegments, x, false)
+        .concat(mergePaths, laneSegmentPaths(primaryLaneSegments, x, true), primaryMergePaths);
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.classList.add('commit-graph-overlay');
+      svg.setAttribute('width', String(width));
+      svg.setAttribute('height', String(height));
+      svg.setAttribute('viewBox', '0 0 ' + width + ' ' + height);
+      svg.style.left = left + 'px';
+      svg.style.top = top + 'px';
+      svg.innerHTML = paths.join('') + nodes.join('');
+      commitsEl.append(svg);
+    }
+
+    function graphMetrics(graphRows, slotWidth) {
+      const laneCount = graphLaneCount(graphRows);
+      const margin = laneCount > 4 ? 12 : laneCount > 1 ? 14 : Math.min(18, Math.max(10, slotWidth / 2));
+      const maxSpacing = 18;
+      const available = Math.max(0, slotWidth - margin * 2);
+      const spacing = laneCount > 1 ? Math.min(maxSpacing, available / Math.max(1, laneCount - 1)) : 0;
+      const nodeRadius = laneCount > 1 ? Math.max(2.1, Math.min(3.55, spacing * 0.32)) : 3.55;
+      return {
+        margin,
+        spacing,
+        width: Math.max(1, slotWidth),
+        nodeRadius,
+        hoverNodeRadius: nodeRadius + 0.45,
+        selectedNodeRadius: nodeRadius + 0.8,
+        innerNodeRadius: Math.max(1.35, Math.min(1.85, nodeRadius * 0.52)),
+        hoverRingRadius: nodeRadius + 2.45,
+        selectedRingRadius: nodeRadius + 3.05
+      };
+    }
+
+    function laneSegmentPaths(segmentsByLane, x, emphasized) {
+      const paths = [];
+      segmentsByLane.forEach((entry) => {
+        const { lane, colorIndex, segments } = entry;
+        segments.sort((a, b) => a[0] - b[0]);
+        let current = undefined;
+        segments.forEach((segment) => {
+          if (!current) {
+            current = segment.slice();
+            return;
+          }
+          if (segment[0] <= current[1] + 0.5) {
+            current[1] = Math.max(current[1], segment[1]);
+          } else {
+            paths.push(graphPath('M ' + x(lane) + ' ' + current[0] + ' L ' + x(lane) + ' ' + current[1], colorIndex, emphasized));
+            current = segment.slice();
+          }
+        });
+        if (current) {
+          paths.push(graphPath('M ' + x(lane) + ' ' + current[0] + ' L ' + x(lane) + ' ' + current[1], colorIndex, emphasized));
+        }
+      });
+      return paths;
+    }
+
+    function graphPath(pathData, lane, emphasized) {
+      return '<path class="graph-line' + (emphasized ? ' primary' : '') + '" d="' + pathData + '" stroke="' + laneColor(lane) + '"/>';
+    }
+
+    function graphTransitionPath(fromX, fromY, toX, toY) {
+      const deltaY = toY - fromY;
+      if (Math.abs(toX - fromX) < 0.5 || deltaY <= 0) {
+        return 'M ' + fromX + ' ' + fromY + ' L ' + toX + ' ' + toY;
+      }
+      const leadY = fromY + deltaY * 0.28;
+      const tailY = fromY + deltaY * 0.82;
+      const controlY1 = fromY + deltaY * 0.48;
+      const controlY2 = fromY + deltaY * 0.62;
+      return 'M ' + fromX + ' ' + fromY +
+        ' L ' + fromX + ' ' + leadY +
+        ' C ' + fromX + ' ' + controlY1 + ', ' + toX + ' ' + controlY2 + ', ' + toX + ' ' + tailY +
+        ' L ' + toX + ' ' + toY;
     }
 
     function commitParents(commit) {
@@ -2694,31 +3031,6 @@ function renderHtml(webview: vscode.Webview): string {
         return commit.parentHashes.filter(Boolean);
       }
       return String(commit.parents || '').split(/\\s+/).filter(Boolean);
-    }
-
-    function renderGraph(row, selected) {
-      if (!row) return '';
-      const spacing = 14;
-      const margin = 8;
-      const height = 24;
-      const center = 12;
-      const laneCount = Math.max(1, row.laneCount || 1);
-      const width = Math.max(28, margin * 2 + (laneCount - 1) * spacing);
-      const x = (lane) => margin + lane * spacing;
-      const color = laneColor(row.colorIndex);
-      const line = (lane, y1, y2) =>
-        '<line class="graph-line" x1="' + x(lane) + '" y1="' + y1 + '" x2="' + x(lane) + '" y2="' + y2 + '" stroke="' + laneColor(lane) + '"/>';
-      const diagonal = (lane) =>
-        '<line class="graph-line" x1="' + x(row.lane) + '" y1="' + center + '" x2="' + x(lane) + '" y2="' + height + '" stroke="' + laneColor(lane) + '"/>';
-      const topLines = row.topLanes.map((lane) => line(lane, 0, center)).join('');
-      const bottomLines = row.bottomLanes.map((lane) => line(lane, center, height)).join('');
-      const mergeLines = row.mergeLanes.map(diagonal).join('');
-      const selectedRing = selected ? '<circle cx="' + x(row.lane) + '" cy="' + center + '" r="7.2" fill="none" stroke="currentColor" stroke-width="1.2" opacity="0.72"/>' : '';
-      const node = selectedRing +
-        '<circle class="graph-node" cx="' + x(row.lane) + '" cy="' + center + '" r="4.8" stroke="currentColor"/>' +
-        '<circle class="graph-node-inner" cx="' + x(row.lane) + '" cy="' + center + '" r="2.1"/>';
-      return '<svg class="graph-lanes" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '" style="color: ' + color + '" aria-hidden="true">' +
-        topLines + bottomLines + mergeLines + node + '</svg>';
     }
 
     function laneColor(index) {
@@ -3126,10 +3438,19 @@ function renderHtml(webview: vscode.Webview): string {
       const branch = selectedBranch();
       if (branch) {
         state.mode = 'files';
+        state.historyFilePath = '';
         saveLayoutState();
         renderChrome();
         vscode.postMessage({ type: 'compareBranch', branch: branch.name });
       }
+    }
+
+    function clearHistoryMode() {
+      state.mode = 'log';
+      state.historyFilePath = '';
+      saveLayoutState();
+      renderChrome();
+      vscode.postMessage({ type: 'setMode', mode: 'log' });
     }
 
     function showSelectedCommitActions() {
@@ -3541,7 +3862,9 @@ function renderHtml(webview: vscode.Webview): string {
           : 'No commits from ' + state.selectedBranch + ' are missing from current branch.';
       }
       if (state.mode === 'history') {
-        return state.historyFilePath ? 'No history found for ' + state.historyFilePath + '.' : 'No file history loaded.';
+        return state.historyFilePath
+          ? 'No history found for ' + state.historyFilePath + '. Click Log to return to the full branch.'
+          : 'No file history loaded. Click Log to return to the full branch.';
       }
       return 'No commits.';
     }
@@ -3613,8 +3936,18 @@ function renderHtml(webview: vscode.Webview): string {
       return widths.every((item) => Number.isFinite(item) && item > 0) ? widths : fallback.slice();
     }
 
+    function normalizedCommitColumns(value, version) {
+      const widths = validWidths(value, [72, 74, 120, 142, 360], 5)
+        .map((width, index) => Math.max(width, [72, 54, 72, 92, 160][index] || 80));
+      if (version !== layoutVersion && widths[0] > 72) {
+        widths[0] = 72;
+      }
+      return widths;
+    }
+
     function saveLayoutState() {
       vscode.setState({
+        layoutVersion,
         activePane: state.activePane,
         mode: state.mode,
         selectedBranch: state.selectedBranch,
@@ -3645,7 +3978,7 @@ function renderHtml(webview: vscode.Webview): string {
       state.currentHunkIndex = -1;
       setFilesLoading(false);
       state.paneColumns = [180, 560, 280, 520];
-      state.commitColumns = [86, 74, 120, 142, 360];
+      state.commitColumns = [72, 74, 120, 142, 360];
       branchSearchEl.value = '';
       commitSearchEl.value = '';
       fileSearchEl.value = '';

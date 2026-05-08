@@ -2,88 +2,122 @@
 
 ## Current State
 
-This repo contains a VS Code extension named **Abstractive SCM** (`abstractive-scm`). It provides IntelliJ-inspired Git/SCM workflows through:
+This repo contains a VS Code extension named **Abstractive SCM** (`local.abstractive-scm`). It provides IntelliJ-inspired Git/SCM workflows through:
 
 - A left activity-bar container with Local Changes, Branches, Log, and Shelves views.
-- An optional VS Code Source Control provider, disabled by default to avoid duplicating the built-in Git provider.
-- A bottom-panel SCM webview that supports branch -> commit -> file -> diff navigation.
+- An optional VS Code Source Control provider, disabled by default to avoid duplicating VS Code's built-in Git provider.
+- A bottom-panel SCM webview for branch -> commit -> file -> diff navigation.
 
-The extension has been packaged and installed locally as:
+The current installed local VSIX is:
 
 ```sh
-/home/jason/src/abstractive-git/abstractive-scm-0.1.0.vsix
+/home/jason/src/abstractive-git/abstractive-scm-0.1.4.vsix
+```
+
+VS Code currently reports:
+
+```sh
+local.abstractive-scm@0.1.4
 ```
 
 After reinstalling the VSIX, reload the VS Code window to pick up webview and contribution changes.
 
 ## Recent Commits
 
-- `a505abf Rename extension to Abstractive SCM`
-- `a338e30 Enhance bottom SCM panel`
+- `7317872 Add bottom panel file history`
+- `74e2363 Polish SCM icon and change groups`
+- `51e38a1 Polish SCM status and icon`
+
+`main` has been pushed to:
+
+```sh
+https://github.com/abstractivemachines/abstractive-scm.git
+```
 
 ## Uncommitted Work
 
-The current uncommitted changes include a shared **Toggle Tree/Flat View** command for the left-side `Local Changes` and `Branches` views, plus bottom-panel commit actions, branch actions, a stronger commit graph, richer diff previews, local changes integration, and polish updates.
+Current uncommitted work is limited to:
 
-Files changed:
-
-- `package.json`
-- `src/branchesView.ts`
-- `src/changesView.ts`
-- `src/extension.ts`
-- `src/git.ts`
 - `src/gitToolWindow.ts`
-- `src/models.ts`
-- `SCM_PANEL_ROADMAP.md`
 - `HANDOFF.md`
 
-Side panel behavior:
+It contains the in-progress bottom-panel commit graph polish:
 
-- `Local Changes` can show flat files or a folder tree inside changelist/status groups.
-- `Branches` can show a flat branch list or slash-grouped branch folders.
-- The toggle is exposed in the `Local Changes` and `Branches` view title bars.
-- The mode is persisted per workspace in `workspaceState` under `abstractiveScm.sidePanelTreeView`.
+- Replaced per-row graph SVG snippets with one continuous SVG overlay across commit rows.
+- The graph overlay now keeps persistent render state and redraws through `requestAnimationFrame`.
+- Long vertical lanes are merged into continuous SVG paths instead of many row-sized segments.
+- File-history mode hides the graph column.
+- Linear histories now use a narrower graph column default (`72px`) with smaller nodes and a subtler selected halo.
+- Multi-lane histories use an adaptive graph column: linear histories stay narrow, while merge-heavy histories expand the graph column up to `320px`.
+- Lane spacing and node sizing are derived from the effective graph column width so dense graphs separate instead of collapsing into stripes.
+- Side lanes now converge into an already-active first-parent lane instead of duplicating that parent and continuing as permanent rails.
+- The graph row model now records continuation and parent lane transitions so shifted lanes render as connected curves rather than disconnected vertical strokes.
+- Removed per-row graph placeholder cells; commit rows now reserve graph space through grid placement while a single overlay measures the graph header column and row centers directly.
+- Graph colors are now stable per chain instead of per lane index, so compacted lanes keep their visual identity as they shift.
+- Lane transitions now use straight vertical lead-in/lead-out segments with the curve only through the middle of the row gap.
+- Active lanes now stay pinned for their lifetime; lane compaction only trims empty lanes at the far right, so continuing lanes stay vertical until an actual parent/merge convergence.
+- Parent/merge transitions are row-local again; long-distance routing to a later visible parent node was removed because it caused oversized crossing curves.
+- Hovering commit rows schedules an overlay redraw and emphasizes the hovered node/lane.
+- Selected commit remains emphasized.
+- Graph redraws during commit-column resizing, pane resizing, and window resizing.
+- Fixed history-mode column resizing so visible columns do not resize the hidden graph column.
+- Replaced the temporary `History` mode button with a `History: <file> x` chip; the `x` returns to `Log`.
+- `Log`/`Out`/`In`/`Files`/`Local` clear the file-history filter.
+- File-history mode title and empty states make the return path back to the full branch clear.
+- Added layout-state migration so older persisted graph widths normalize to the new `72px` default without a manual reset.
 
-Bottom panel behavior:
-
-- Selected commits have an `Actions` toolbar menu and commit context menu entries.
-- Commit actions support cherry-pick, revert, create branch, create tag, and detached checkout.
-- Cherry-pick, revert, and detached checkout show modal confirmations before changing repository state.
-- Branch and tag creation prompt for the new ref name at the selected commit.
-- Selected branches have a `Branch` toolbar menu and branch context menu entries.
-- Branch actions support create, checkout, compare, merge, rebase, rename, and delete.
-- Merge, rebase, and delete show modal confirmations before changing repository state.
-- Rename and delete are limited to local branches; selected remote branches can still be checked out, compared, merged, or used as a rebase target.
-- Commit log rows now include parent hashes so the bottom panel can render a structured DAG.
-- The commit graph uses calculated lanes, stable lane colors, merge diagonals, and compact ref labels for HEAD, local branches, remotes, and tags.
-- Diff preview supports unified and side-by-side views.
-- Diff preview shows selected-file added/deleted line counts, collapsible hunk headers, and intra-line highlights for paired add/delete lines.
-- Bottom panel has a `Local` mode for working tree/index changes.
-- Local mode supports previewing local patches, native diff opening, opening worktree files, staging, unstaging, committing staged changes, shelving, and unshelving.
-- Bottom panel now persists selected branch, commit, and file keys in webview state and ignores stale async selection responses.
-- Bottom panel has a `Keys` toolbar button and `F1` keyboard shortcut overlay.
-- Auto-refresh also watches `.git` metadata (`HEAD`, `index`, refs, packed refs) in addition to workspace file changes.
-- Bottom panel now shows the active navigation column with theme-native header, border, and selected-row treatment.
-- The lower-right inspector now shows contextual selected file/change details, while selected commit metadata lives in a compact summary inside the Commits pane.
-- File rows now use a left file-type badge and move Git status to a right-aligned status column.
-- Side-panel change items now use `resourceUri` instead of status icons so VS Code can render the active file icon theme and file decorations.
-- The selected-commit summary keeps a fixed height and renders from the selected commit row immediately to avoid list/graph jumping while async details load.
-- Bottom-panel file lists no longer auto-select the first file when commit/compare/local data loads; moving focus into the Files pane selects the first file if none is selected.
-- Bottom-panel file lists stay mounted while commit files load and use a short delayed loading indicator to reduce flicker during rapid commit navigation.
-- Bottom-panel graph nodes emphasize selected/hovered commits; ref labels remain in the subject column rather than graph glyphs.
-- Activity/panel icon now uses `media/activity-graph.svg`, a larger bolder commit-graph glyph; the new filename avoids VS Code reusing the old cached activity icon.
-- The Local Changes tree view now owns a VS Code view badge showing the current local change count, so the custom activity icon can show a count indicator.
-- Branch tree mode filters remote HEAD aliases like `origin` and shows branch leaves relative to their folder, e.g. `Remote > origin > main`.
-- Nested branch leaves use a compact commit-node icon instead of the wider branch glyph so child rows align more clearly under folders.
-- Side-panel Log rows now hide `origin/HEAD`, compact refs into the label, and use author/date as stable row metadata.
-
-Verification already run:
+Verification already run for this uncommitted work:
 
 ```sh
 npm run compile
+git diff --check
 npm run package
-code --install-extension /home/jason/src/abstractive-git/abstractive-scm-0.1.0.vsix --force
+code --install-extension /home/jason/src/abstractive-git/abstractive-scm-0.1.4.vsix --force
 ```
+
+## Implemented Highlights
+
+Bottom panel:
+
+- Four-pane branch, commit, file, and diff workflow.
+- Resizable pane columns and commit table columns.
+- Persisted panel layout.
+- Commit modes: `Log`, `Out`, `In`, `Files`, `Local`, and file `History`.
+- Explorer and editor `Show File History` command loads complete `git log --follow -- <file>` history into the bottom SCM panel.
+- File-history mode previews the selected file revision patch in the bottom panel.
+- Branch search/filter and commit search.
+- File search/filter.
+- Keyboard navigation with arrows and vim-style `h/j/k/l`.
+- File navigation with `[` and `]`.
+- Hunk navigation with `,` and `.`.
+- Native diff opening, revision opening, worktree file opening, hash copy, and branch checkout.
+- Commit actions for cherry-pick, revert, branch/tag from commit, and detached checkout.
+- Branch actions for create, checkout, compare, merge, rebase, rename, and delete.
+- Diff preview with unified/side-by-side modes, hunk collapse, line stats, and intra-line highlights.
+- Local changes mode with stage/unstage, commit, shelve, and unshelve actions.
+- Selection persistence, Git metadata auto-refresh, keyboard shortcut overlay, and active-column highlighting.
+- Contextual file/change inspector and compact selected-commit summary.
+
+Left side views:
+
+- `Local Changes` grouped by changelist and non-empty status buckets.
+- Empty `Conflicts (0)` is hidden.
+- Side-panel local changes use VS Code file-theme icons for file rows instead of Git status icons.
+- Git status is represented as decoration/status text rather than replacing the file icon.
+- Per-file stage, unstage, rollback, move to changelist, open diff, and file history actions.
+- Group stage/unstage actions.
+- `Branches` grouped by local/remote, with checkout, compare, create, and delete actions.
+- Remote HEAD aliases such as `origin/HEAD` are filtered from branch/log display.
+- `Log` commit list with show changed files and copy hash actions.
+- `Shelves` backed by Git stash apply/pop/drop.
+- Shared tree/flat toggle for `Local Changes` and `Branches`.
+
+Activity/status UI:
+
+- Activity/panel icon uses `media/activity-board-v3.svg`.
+- Legacy activity SVG paths were updated so stale icon paths render the board icon rather than the old branch-like glyph.
+- Local Changes tree owns the VS Code view badge showing the local change count.
+- Status bar entry opens the bottom SCM panel and summarizes local change/sync state.
 
 ## Build And Install
 
@@ -102,58 +136,17 @@ npm run package
 Install into the running VS Code installation:
 
 ```sh
-code --install-extension /home/jason/src/abstractive-git/abstractive-scm-0.1.0.vsix --force
+code --install-extension /home/jason/src/abstractive-git/abstractive-scm-0.1.4.vsix --force
 ```
 
 Reload VS Code after installing.
 
-## Bottom SCM Panel Features
+## Next Recommended Work
 
-Implemented:
+Recommended next steps:
 
-- Four-pane branch, commit, file, and diff workflow.
-- Resizable pane columns.
-- Resizable commit table columns.
-- Persisted panel layout.
-- Commit modes: log, outgoing, incoming, and branch files.
-- Branch search/filter.
-- Commit search.
-- File search/filter.
-- Keyboard navigation with arrows and vim-style `h/j/k/l`.
-- File navigation with `[` and `]`.
-- Hunk navigation with `,` and `.`.
-- Open native diff, open file at revision, open working tree file, copy hash, checkout branch.
-- Commit actions for cherry-pick, revert, branch/tag from commit, and detached checkout.
-- Branch actions for create, checkout, compare, merge, rebase, rename, and delete.
-- Structured commit graph with lane calculation, merge visualization, colors, and ref labels.
-- Diff preview with unified/side-by-side modes, hunk collapse, line stats, and intra-line highlights.
-- Local changes mode with stage/unstage, commit, shelve, and unshelve actions.
-- Selection persistence, Git metadata auto-refresh, keyboard shortcut overlay, and active-column highlighting.
-- Contextual file/change inspector, compact selected-commit summary, and file rows with right-aligned Git status.
-- Side-panel local changes use VS Code file-theme icons for file rows instead of Git status icons.
-- Context menus for branches, commits, and files.
-- Commit details panel.
+- Visually verify the graph polish on a repository with actual merges/branches; this repo's visible history is mostly linear, so it cannot validate merge routing.
+- Consider auto-previewing the first file only in file-history mode so the diff panel does not sit empty.
+- Add focused tests for Git parsing and graph lane construction.
 
-Known issue to visually confirm:
-
-- Toolbar layout should be checked after VS Code reload. It was changed to a two-row wrapping layout after right-edge overflow reports.
-
-## Left Side Views
-
-Implemented:
-
-- `Local Changes` grouped by changelist and status bucket.
-- Per-file stage, unstage, rollback, move to changelist, open diff, and file history actions.
-- Group stage/unstage actions.
-- `Branches` grouped by local/remote, with checkout, compare, create, and delete actions.
-- `Log` commit list with show changed files and copy hash actions.
-- `Shelves` backed by Git stash apply/pop/drop.
-- Shared tree/flat toggle for `Local Changes` and `Branches`.
-
-## Next Likely Work
-
-High-value next items:
-
-- Add unit tests for Git parsing, especially log graph and status parsing.
-
-See `SCM_PANEL_ROADMAP.md` for a longer roadmap.
+See `SCM_PANEL_ROADMAP.md` for the longer roadmap.
