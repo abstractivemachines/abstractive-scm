@@ -43,16 +43,20 @@ export function renderHtml(webview: vscode.Webview): string {
       height: 100vh;
     }
     .toolbar {
+      position: relative;
       display: grid;
       grid-template-columns: minmax(0, 1fr);
       align-items: stretch;
       gap: 4px;
       min-width: 0;
-      min-height: 56px;
+      min-height: 34px;
       padding: 4px 10px 6px;
       border-bottom: 1px solid var(--vscode-sideBar-border);
       background: var(--vscode-sideBar-background);
       overflow: hidden;
+    }
+    .toolbar.has-status {
+      min-height: 56px;
     }
     .toolbar-status {
       min-width: 0;
@@ -60,6 +64,9 @@ export function renderHtml(webview: vscode.Webview): string {
       align-items: center;
       gap: 8px;
       overflow: hidden;
+    }
+    .toolbar-status[hidden] {
+      display: none;
     }
     .title {
       font-weight: 600;
@@ -895,8 +902,8 @@ export function renderHtml(webview: vscode.Webview): string {
 <body>
   <div class="shell">
     <div class="toolbar">
-      <div class="toolbar-status">
-        <div class="title" id="title">SCM</div>
+      <div class="toolbar-status" hidden>
+        <div class="title" id="title"></div>
         <div class="loading" id="loading"></div>
         <div class="error" id="error"></div>
       </div>
@@ -1008,6 +1015,9 @@ export function renderHtml(webview: vscode.Webview): string {
     const persistedState = vscode.getState() || {};
     const layoutVersion = 2;
     const state = {
+      repoName: '',
+      repoRoot: '',
+      showRepoContext: false,
       branches: [],
       currentBranch: '',
       selectedBranch: persistedState.selectedBranch || '',
@@ -1051,6 +1061,8 @@ export function renderHtml(webview: vscode.Webview): string {
     const diffStatsEl = document.getElementById('diffStats');
     const detailsEl = document.getElementById('selectionDetails');
     const commitSummaryEl = document.getElementById('commitSummary');
+    const toolbarEl = document.querySelector('.toolbar');
+    const toolbarStatusEl = document.querySelector('.toolbar-status');
     const branchSearchEl = document.getElementById('branchSearch');
     const commitSearchEl = document.getElementById('commitSearch');
     const fileSearchEl = document.getElementById('fileSearch');
@@ -1157,6 +1169,9 @@ export function renderHtml(webview: vscode.Webview): string {
     window.addEventListener('message', (event) => {
       const message = event.data;
       if (message.type === 'init') {
+        state.repoName = message.repoName || '';
+        state.repoRoot = message.repoRoot || '';
+        state.showRepoContext = Boolean(message.showRepoContext);
         state.branches = message.branches || [];
         state.currentBranch = message.currentBranch || '';
         const restoredBranch = state.selectedBranch && state.branches.some((branch) => branch.name === state.selectedBranch)
@@ -1354,12 +1369,14 @@ export function renderHtml(webview: vscode.Webview): string {
 
     function renderChrome() {
       renderActivePane();
-      titleEl.textContent = state.selectedBranch ? 'SCM: ' + state.selectedBranch : 'SCM';
-      if (state.mode === 'history' && state.historyFilePath) {
-        titleEl.textContent = 'SCM: ' + state.historyFilePath;
-      }
-      loadingEl.textContent = state.loading ? 'Loading...' : '';
+      const title = toolWindowTitle();
+      titleEl.textContent = title;
+      titleEl.title = title ? toolWindowTitleTooltip() : '';
       errorEl.textContent = state.error || '';
+      const hasStatus = Boolean(title || state.error);
+      loadingEl.textContent = state.loading && hasStatus ? 'Loading...' : '';
+      toolbarStatusEl.hidden = !hasStatus;
+      toolbarEl.classList.toggle('has-status', hasStatus);
       const branch = selectedBranch();
       const commit = selectedCommit();
       document.getElementById('checkoutBranch').disabled = !branch || branch.current;
@@ -1395,6 +1412,34 @@ export function renderHtml(webview: vscode.Webview): string {
       document.querySelectorAll('[data-file-filter]').forEach((button) => {
         button.classList.toggle('active', button.dataset.fileFilter === state.fileFilter);
       });
+    }
+
+    function toolWindowTitle() {
+      if (!state.showRepoContext) {
+        return '';
+      }
+      const repo = state.repoName || 'SCM';
+      const subject = state.mode === 'history' && state.historyFilePath
+        ? state.historyFilePath
+        : (state.selectedBranch || state.currentBranch || '');
+      return subject ? repo + ' / ' + subject : repo;
+    }
+
+    function toolWindowTitleTooltip() {
+      const lines = [];
+      if (state.repoRoot) {
+        lines.push(state.repoRoot);
+      }
+      if (state.currentBranch) {
+        lines.push('Current branch: ' + state.currentBranch);
+      }
+      if (state.selectedBranch && state.selectedBranch !== state.currentBranch) {
+        lines.push('Selected branch: ' + state.selectedBranch);
+      }
+      if (state.mode === 'history' && state.historyFilePath) {
+        lines.push('File history: ' + state.historyFilePath);
+      }
+      return lines.join('\\n');
     }
 
     function renderActivePane() {

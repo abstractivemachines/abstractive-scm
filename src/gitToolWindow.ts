@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { GitService } from './git';
 import { renderHtml } from './gitToolWindowHtml';
 import { gitContentUri } from './gitContentProvider';
@@ -192,6 +193,9 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       const selectedBranch = this.selectedBranch ?? currentBranch;
       this.post({
         type: 'init',
+        repoName: path.basename(this.git.root),
+        repoRoot: this.git.root,
+        showRepoContext: (vscode.workspace.workspaceFolders?.length ?? 0) > 1,
         branches,
         currentBranch,
         selectedBranch,
