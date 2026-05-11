@@ -110,9 +110,16 @@ export function renderHtml(webview: vscode.Webview): string {
     }
     .layout {
       display: grid;
-      grid-template-columns: var(--pane-columns, 180px 560px 280px 520px);
       min-height: 0;
       height: 100%;
+    }
+    .layout.diff-right {
+      grid-template-columns: var(--pane-columns, 180px 4px 560px 4px 280px 4px 520px);
+      grid-template-rows: minmax(0, 1fr);
+    }
+    .layout.diff-bottom {
+      grid-template-columns: var(--main-pane-columns, 180px 4px 560px 4px 280px);
+      grid-template-rows: minmax(0, 1fr) 4px minmax(160px, var(--diff-pane-height, 280px));
     }
     .pane {
       position: relative;
@@ -131,22 +138,27 @@ export function renderHtml(webview: vscode.Webview): string {
     .commit-pane {
       grid-template-rows: 28px auto minmax(0, 1fr);
     }
+    .diff-pane {
+      grid-template-rows: auto minmax(0, 1fr);
+    }
     .pane.active-pane {
       box-shadow: inset 0 2px 0 var(--scm-pane-accent), inset 0 0 0 1px var(--scm-pane-accent);
     }
     .pane-divider {
-      width: 0;
-      min-width: 0;
+      width: 4px;
+      min-width: 4px;
       position: relative;
       z-index: 4;
+      background: var(--vscode-sideBar-border);
+      cursor: col-resize;
     }
     .pane-divider::before {
       content: "";
       position: absolute;
       top: 0;
       bottom: 0;
-      left: -5px;
-      width: 10px;
+      left: -4px;
+      width: 12px;
       cursor: col-resize;
     }
     .pane-divider::after {
@@ -154,13 +166,65 @@ export function renderHtml(webview: vscode.Webview): string {
       position: absolute;
       top: 0;
       bottom: 0;
-      left: -1px;
+      left: 1px;
       width: 1px;
       background: transparent;
     }
     .pane-divider:hover::after,
     .pane-divider.dragging::after {
       background: var(--scm-pane-accent);
+    }
+    .layout.diff-bottom [data-pane="branches"] {
+      grid-column: 1;
+      grid-row: 1;
+    }
+    .layout.diff-bottom [data-divider="0"] {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .layout.diff-bottom [data-pane="commits"] {
+      grid-column: 3;
+      grid-row: 1;
+    }
+    .layout.diff-bottom [data-divider="1"] {
+      grid-column: 4;
+      grid-row: 1;
+    }
+    .layout.diff-bottom [data-pane="files"] {
+      grid-column: 5;
+      grid-row: 1;
+      border-right: 0;
+    }
+    .layout.diff-bottom [data-divider="2"] {
+      grid-column: 1 / -1;
+      grid-row: 2;
+      width: auto;
+      height: 4px;
+      min-height: 4px;
+      cursor: row-resize;
+    }
+    .layout.diff-bottom [data-divider="2"]::before {
+      top: -4px;
+      bottom: auto;
+      left: 0;
+      right: 0;
+      width: auto;
+      height: 12px;
+      cursor: row-resize;
+    }
+    .layout.diff-bottom [data-divider="2"]::after {
+      top: 1px;
+      bottom: auto;
+      left: 0;
+      right: 0;
+      width: auto;
+      height: 1px;
+    }
+    .layout.diff-bottom .diff-pane {
+      grid-column: 1 / -1;
+      grid-row: 3;
+      border-top: 1px solid var(--vscode-sideBar-border);
+      border-right: 0;
     }
     .pane-title {
       position: relative;
@@ -275,14 +339,18 @@ export function renderHtml(webview: vscode.Webview): string {
       flex: 1 1 90px;
     }
     .diff-title {
-      display: grid;
-      grid-template-columns: minmax(92px, 1fr) auto auto auto auto auto auto;
+      flex-wrap: wrap;
+      min-height: 28px;
+      height: auto;
     }
     .list,
     .grid,
     .diff {
       overflow: auto;
       min-height: 0;
+    }
+    .diff:focus {
+      outline: none;
     }
     .grid {
       position: relative;
@@ -308,6 +376,9 @@ export function renderHtml(webview: vscode.Webview): string {
       display: grid;
       grid-template-rows: minmax(0, 1fr) auto;
       min-height: 0;
+    }
+    .diff-stack.details-hidden {
+      grid-template-rows: minmax(0, 1fr);
     }
     .row {
       width: 100%;
@@ -436,11 +507,16 @@ export function renderHtml(webview: vscode.Webview): string {
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .commit-header .commit-column {
+      align-self: stretch;
+      display: flex;
+      align-items: center;
+    }
     .resize-handle {
       position: absolute;
       top: 0;
-      right: -5px;
-      width: 10px;
+      right: 0;
+      width: 8px;
       height: 100%;
       cursor: col-resize;
       z-index: 2;
@@ -449,10 +525,10 @@ export function renderHtml(webview: vscode.Webview): string {
       content: "";
       position: absolute;
       top: 5px;
-      right: 4px;
+      right: 3px;
       width: 1px;
       height: calc(100% - 10px);
-      background: transparent;
+      background: var(--vscode-sideBar-border);
     }
     .resize-handle:hover::after,
     .resize-handle.dragging::after {
@@ -651,6 +727,9 @@ export function renderHtml(webview: vscode.Webview): string {
       padding: 8px 12px;
       border-top: 1px solid var(--vscode-sideBar-border);
       background: var(--vscode-sideBar-background);
+    }
+    .details[hidden] {
+      display: none;
     }
     .details-title {
       overflow: hidden;
@@ -866,8 +945,8 @@ export function renderHtml(webview: vscode.Webview): string {
       white-space: nowrap;
     }
     @media (max-width: 980px) {
-      .layout {
-        grid-template-columns: var(--pane-columns, 150px 420px 220px 360px);
+      .layout.diff-right {
+        grid-template-columns: var(--pane-columns, 150px 4px 420px 4px 220px 4px 360px);
       }
       .commit-header,
       .commit-row {
@@ -879,7 +958,7 @@ export function renderHtml(webview: vscode.Webview): string {
       .commit-header .date-col {
         display: none;
       }
-      .diff-pane {
+      .layout.diff-right .diff-pane {
         grid-column: 1 / -1;
         border-top: 1px solid var(--vscode-sideBar-border);
       }
@@ -915,6 +994,8 @@ export function renderHtml(webview: vscode.Webview): string {
         <button id="openFile" title="Open selected file at this revision (p)">Revision</button>
         <button id="openWorkingFile" title="Open selected working tree file (w)">Worktree</button>
         <button id="openDiff" title="Open selected file diff (o)">Diff</button>
+        <button id="toggleDiffPlacementToolbar" title="Dock diff preview on the right">Dock Right</button>
+        <button id="toggleDetailsToolbar" title="Show selection details">Details</button>
         <button id="stageChange" title="Stage selected local change">Stage</button>
         <button id="unstageChange" title="Unstage selected local change">Unstage</button>
         <button id="commitChanges" title="Commit staged changes">Commit</button>
@@ -925,7 +1006,7 @@ export function renderHtml(webview: vscode.Webview): string {
         <button id="refresh" title="Refresh">Refresh</button>
       </div>
     </div>
-    <main class="layout">
+    <main class="layout diff-bottom">
       <section class="pane" data-pane="branches">
         <div class="pane-title branch-title">
           <span>Branches</span>
@@ -972,6 +1053,8 @@ export function renderHtml(webview: vscode.Webview): string {
         <div class="pane-title diff-title">
           <span>Diff Preview</span>
           <span class="diff-stats" id="diffStats"></span>
+          <button id="toggleDiffPlacement" title="Move diff preview to the right">Right</button>
+          <button id="toggleDetails" title="Show selection details">Details</button>
           <button id="toggleDiffView" title="Toggle side-by-side diff preview">Side</button>
           <button id="prevFile" title="Previous file ([)">File &lt;</button>
           <button id="nextFile" title="Next file (])">File &gt;</button>
@@ -1013,7 +1096,7 @@ export function renderHtml(webview: vscode.Webview): string {
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const persistedState = vscode.getState() || {};
-    const layoutVersion = 2;
+    const layoutVersion = 3;
     const state = {
       repoName: '',
       repoRoot: '',
@@ -1031,7 +1114,9 @@ export function renderHtml(webview: vscode.Webview): string {
       selectedFile: persistedState.selectedFile || '',
       selectedCommitDetails: undefined,
       patch: '',
+      diffPlacement: persistedState.layoutVersion === layoutVersion && persistedState.diffPlacement === 'right' ? 'right' : 'bottom',
       diffView: persistedState.diffView || 'unified',
+      detailsVisible: persistedState.detailsVisible === true,
       collapsedHunks: [],
       error: '',
       loading: false,
@@ -1050,6 +1135,7 @@ export function renderHtml(webview: vscode.Webview): string {
       fileFilter: persistedState.fileFilter || 'all',
       graphLaneCount: 1,
       paneColumns: validWidths(persistedState.paneColumns, [180, 560, 280, 520], 4),
+      diffPaneHeight: validDimension(persistedState.diffPaneHeight, 280, 160),
       commitColumns: normalizedCommitColumns(persistedState.commitColumns, persistedState.layoutVersion)
     };
 
@@ -1060,6 +1146,7 @@ export function renderHtml(webview: vscode.Webview): string {
     const diffEl = document.getElementById('diff');
     const diffStatsEl = document.getElementById('diffStats');
     const detailsEl = document.getElementById('selectionDetails');
+    const diffStackEl = document.querySelector('.diff-stack');
     const commitSummaryEl = document.getElementById('commitSummary');
     const toolbarEl = document.querySelector('.toolbar');
     const toolbarStatusEl = document.querySelector('.toolbar-status');
@@ -1075,6 +1162,7 @@ export function renderHtml(webview: vscode.Webview): string {
     let graphRenderFrame = 0;
     let graphCommits = [];
     let graphRows = new Map();
+    let suppressMouseResizeUntil = 0;
 
     document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
     document.getElementById('checkoutBranch').addEventListener('click', checkoutSelectedBranch);
@@ -1084,6 +1172,8 @@ export function renderHtml(webview: vscode.Webview): string {
     document.getElementById('openFile').addEventListener('click', openSelectedFileAtRevision);
     document.getElementById('openWorkingFile').addEventListener('click', openSelectedWorkingFile);
     document.getElementById('openDiff').addEventListener('click', openSelectedFileDiff);
+    document.getElementById('toggleDiffPlacementToolbar').addEventListener('click', toggleDiffPlacement);
+    document.getElementById('toggleDetailsToolbar').addEventListener('click', toggleDetails);
     document.getElementById('stageChange').addEventListener('click', stageSelectedChange);
     document.getElementById('unstageChange').addEventListener('click', unstageSelectedChange);
     document.getElementById('commitChanges').addEventListener('click', commitLocalChanges);
@@ -1092,6 +1182,8 @@ export function renderHtml(webview: vscode.Webview): string {
     document.getElementById('showHelp').addEventListener('click', showHelp);
     document.getElementById('closeHelp').addEventListener('click', hideHelp);
     document.getElementById('resetLayout').addEventListener('click', () => vscode.postMessage({ type: 'resetLayout' }));
+    document.getElementById('toggleDiffPlacement').addEventListener('click', toggleDiffPlacement);
+    document.getElementById('toggleDetails').addEventListener('click', toggleDetails);
     document.getElementById('toggleDiffView').addEventListener('click', toggleDiffView);
     document.getElementById('prevFile').addEventListener('click', () => navigateFile(-1));
     document.getElementById('nextFile').addEventListener('click', () => navigateFile(1));
@@ -1163,8 +1255,15 @@ export function renderHtml(webview: vscode.Webview): string {
     });
     document.querySelectorAll('.pane-divider').forEach((divider) => {
       divider.addEventListener('pointerdown', (event) => startPaneResize(event, Number(divider.dataset.divider), divider));
+      divider.addEventListener('mousedown', (event) => startPaneResize(event, Number(divider.dataset.divider), divider));
     });
+    layoutEl.addEventListener('pointerdown', handleLayoutPointerDown);
+    layoutEl.addEventListener('mousedown', handleLayoutPointerDown);
     applyPaneColumns();
+    renderChrome();
+    if (persistedState.layoutVersion !== layoutVersion) {
+      saveLayoutState();
+    }
 
     window.addEventListener('message', (event) => {
       const message = event.data;
@@ -1393,6 +1492,12 @@ export function renderHtml(webview: vscode.Webview): string {
       document.getElementById('commitChanges').disabled = state.mode !== 'changes' || !state.files.some((item) => item.bucket === 'staged');
       document.getElementById('shelveChanges').disabled = state.mode !== 'changes' || !state.files.length;
       document.getElementById('unshelveChanges').disabled = state.mode !== 'changes';
+      updateDiffPlacementButton(document.getElementById('toggleDiffPlacement'), 'short');
+      updateDiffPlacementButton(document.getElementById('toggleDiffPlacementToolbar'), 'toolbar');
+      updateDetailsButton(document.getElementById('toggleDetails'));
+      updateDetailsButton(document.getElementById('toggleDetailsToolbar'));
+      detailsEl.hidden = !state.detailsVisible;
+      diffStackEl.classList.toggle('details-hidden', !state.detailsVisible);
       const diffViewButton = document.getElementById('toggleDiffView');
       diffViewButton.textContent = state.diffView === 'side' ? 'Unified' : 'Side';
       diffViewButton.classList.toggle('active', state.diffView === 'side');
@@ -1412,6 +1517,23 @@ export function renderHtml(webview: vscode.Webview): string {
       document.querySelectorAll('[data-file-filter]').forEach((button) => {
         button.classList.toggle('active', button.dataset.fileFilter === state.fileFilter);
       });
+    }
+
+    function updateDiffPlacementButton(button, variant) {
+      if (!button) return;
+      const movingToBottom = state.diffPlacement === 'right';
+      button.textContent = variant === 'toolbar'
+        ? (movingToBottom ? 'Dock Bottom' : 'Dock Right')
+        : (movingToBottom ? 'Bottom' : 'Right');
+      button.title = movingToBottom ? 'Dock diff preview at the bottom' : 'Dock diff preview on the right';
+      button.classList.toggle('active', state.diffPlacement === 'right');
+    }
+
+    function updateDetailsButton(button) {
+      if (!button) return;
+      button.textContent = state.detailsVisible ? 'Hide Details' : 'Details';
+      button.title = state.detailsVisible ? 'Hide selection details' : 'Show selection details';
+      button.classList.toggle('active', state.detailsVisible);
     }
 
     function toolWindowTitle() {
@@ -1545,6 +1667,8 @@ export function renderHtml(webview: vscode.Webview): string {
       applyCommitColumns(header);
       const columns = commitColumnDefinitions();
       header.append(...columns.map((column, index) => commitHeaderCell(column.label, column.widthIndex, column.extraClass, index, columns.length)));
+      header.addEventListener('pointerdown', handleCommitHeaderPointerDown);
+      header.addEventListener('mousedown', handleCommitHeaderPointerDown);
       commitsEl.replaceChildren(header, ...commits.map((commit, index) => {
         const selected = commit.hash === state.selectedCommit;
         const row = selectableRow('commit-row row' + (state.mode === 'history' ? '' : ' has-graph') + rowState('commits', selected), 'row', selected);
@@ -1903,14 +2027,49 @@ export function renderHtml(webview: vscode.Webview): string {
       return body;
     }
 
+    function shouldIgnoreMouseResize(event) {
+      return event.type === 'mousedown' && Date.now() < suppressMouseResizeUntil;
+    }
+
+    function markResizeStart(event) {
+      if (event.type === 'pointerdown') {
+        suppressMouseResizeUntil = Date.now() + 500;
+      }
+    }
+
+    function resizeEventNames(event) {
+      return event.type === 'mousedown'
+        ? { move: 'mousemove', up: 'mouseup' }
+        : { move: 'pointermove', up: 'pointerup' };
+    }
+
+    function capturePointer(element, event) {
+      if (event.pointerId !== undefined) {
+        element.setPointerCapture?.(event.pointerId);
+      }
+    }
+
     function startPaneResize(event, index, divider) {
+      if (shouldIgnoreMouseResize(event)) {
+        return;
+      }
+      markResizeStart(event);
       event.preventDefault();
       event.stopPropagation();
+      if (state.diffPlacement === 'bottom' && index === 2) {
+        startDiffPaneResize(event, divider);
+        return;
+      }
+      if (state.diffPlacement === 'bottom') {
+        startBottomMainPaneResize(event, index, divider);
+        return;
+      }
       const startX = event.clientX;
       const leftStart = state.paneColumns[index];
       const rightStart = state.paneColumns[index + 1];
       divider.classList.add('dragging');
-      divider.setPointerCapture?.(event.pointerId);
+      capturePointer(divider, event);
+      const events = resizeEventNames(event);
 
       const move = (moveEvent) => {
         const delta = moveEvent.clientX - startX;
@@ -1923,13 +2082,142 @@ export function renderHtml(webview: vscode.Webview): string {
       };
       const stop = () => {
         divider.classList.remove('dragging');
-        document.removeEventListener('pointermove', move);
-        document.removeEventListener('pointerup', stop);
+        document.removeEventListener(events.move, move);
+        document.removeEventListener(events.up, stop);
         saveLayoutState();
       };
 
-      document.addEventListener('pointermove', move);
-      document.addEventListener('pointerup', stop, { once: true });
+      document.addEventListener(events.move, move);
+      document.addEventListener(events.up, stop, { once: true });
+    }
+
+    function startBottomMainPaneResize(event, index, divider) {
+      const branchesRect = document.querySelector('[data-pane="branches"]').getBoundingClientRect();
+      const commitsRect = document.querySelector('[data-pane="commits"]').getBoundingClientRect();
+      const filesRect = document.querySelector('[data-pane="files"]').getBoundingClientRect();
+      const startX = event.clientX;
+      const branchStart = branchesRect.width;
+      const commitStart = commitsRect.width;
+      const filesStart = filesRect.width;
+      divider.classList.add('dragging');
+      capturePointer(divider, event);
+      const events = resizeEventNames(event);
+
+      const move = (moveEvent) => {
+        const delta = moveEvent.clientX - startX;
+        if (index === 0) {
+          const minLeft = minPaneWidth(0);
+          const minRight = minPaneWidth(1);
+          const clampedDelta = Math.max(minLeft - branchStart, Math.min(delta, commitStart - minRight));
+          state.paneColumns[0] = branchStart + clampedDelta;
+          state.paneColumns[1] = commitStart - clampedDelta;
+          state.paneColumns[2] = filesStart;
+        } else if (index === 1) {
+          const minLeft = minPaneWidth(1);
+          const minRight = minPaneWidth(2);
+          const clampedDelta = Math.max(minLeft - commitStart, Math.min(delta, filesStart - minRight));
+          state.paneColumns[1] = commitStart + clampedDelta;
+          state.paneColumns[2] = filesStart - clampedDelta;
+        }
+        applyPaneColumns();
+      };
+      const stop = () => {
+        divider.classList.remove('dragging');
+        document.removeEventListener(events.move, move);
+        document.removeEventListener(events.up, stop);
+        saveLayoutState();
+      };
+
+      document.addEventListener(events.move, move);
+      document.addEventListener(events.up, stop, { once: true });
+    }
+
+    function handleLayoutPointerDown(event) {
+      if (event.button !== 0 || event.target.closest('button, input, .resize-handle, .pane-divider, .context-menu, .help-overlay')) {
+        return;
+      }
+      const boundary = nearestPaneBoundary(event.clientX, event.clientY);
+      if (!boundary) {
+        return;
+      }
+      startPaneResize(event, boundary.index, boundary.divider);
+    }
+
+    function nearestPaneBoundary(clientX, clientY) {
+      const tolerance = 8;
+      const branches = document.querySelector('[data-pane="branches"]')?.getBoundingClientRect();
+      const commits = document.querySelector('[data-pane="commits"]')?.getBoundingClientRect();
+      const files = document.querySelector('[data-pane="files"]')?.getBoundingClientRect();
+      const diff = document.querySelector('[data-pane="diff"]')?.getBoundingClientRect();
+      const dividers = [0, 1, 2].map((index) => document.querySelector('[data-divider="' + index + '"]'));
+      if (!branches || !commits || !files || !diff) {
+        return undefined;
+      }
+      const verticalBoundary = (x, top, bottom, index) => {
+        if (!dividers[index]) return undefined;
+        if (clientY < top || clientY > bottom || Math.abs(clientX - x) > tolerance) return undefined;
+        return { index, divider: dividers[index] };
+      };
+      if (state.diffPlacement === 'bottom') {
+        return verticalBoundary(branches.right, branches.top, branches.bottom, 0)
+          || verticalBoundary(files.left, files.top, files.bottom, 1)
+          || (dividers[2] && Math.abs(clientY - diff.top) <= tolerance ? { index: 2, divider: dividers[2] } : undefined);
+      }
+      return verticalBoundary(branches.right, branches.top, branches.bottom, 0)
+        || verticalBoundary(files.left, files.top, files.bottom, 1)
+        || verticalBoundary(diff.left, diff.top, diff.bottom, 2);
+    }
+
+    function startDiffPaneResize(event, divider) {
+      const startY = event.clientY;
+      const startHeight = state.diffPaneHeight;
+      divider.classList.add('dragging');
+      capturePointer(divider, event);
+      const events = resizeEventNames(event);
+
+      const move = (moveEvent) => {
+        const delta = startY - moveEvent.clientY;
+        state.diffPaneHeight = clampedDiffPaneHeight(startHeight + delta);
+        applyPaneColumns();
+      };
+      const stop = () => {
+        divider.classList.remove('dragging');
+        document.removeEventListener(events.move, move);
+        document.removeEventListener(events.up, stop);
+        saveLayoutState();
+      };
+
+      document.addEventListener(events.move, move);
+      document.addEventListener(events.up, stop, { once: true });
+    }
+
+    function handleCommitHeaderPointerDown(event) {
+      if (event.button !== 0 || event.target.closest('.resize-handle, button, input')) {
+        return;
+      }
+      const boundary = nearestCommitColumnBoundary(event.clientX, event.clientY, event.currentTarget);
+      if (!boundary) {
+        return;
+      }
+      startColumnResize(event, boundary.widthIndex, boundary.handle);
+    }
+
+    function nearestCommitColumnBoundary(clientX, clientY, header) {
+      const tolerance = 8;
+      const definitions = commitColumnDefinitions();
+      const cells = Array.from(header.querySelectorAll('.commit-column'));
+      for (let index = 0; index < cells.length - 1; index += 1) {
+        const rect = cells[index].getBoundingClientRect();
+        if (clientY >= rect.top && clientY <= rect.bottom && Math.abs(clientX - rect.right) <= tolerance) {
+          const handle = cells[index].querySelector('.resize-handle');
+          if (!handle) return undefined;
+          return {
+            widthIndex: definitions[index].widthIndex,
+            handle
+          };
+        }
+      }
+      return undefined;
     }
 
     function minPaneWidth(index) {
@@ -1937,12 +2225,32 @@ export function renderHtml(webview: vscode.Webview): string {
     }
 
     function applyPaneColumns() {
+      layoutEl.classList.toggle('diff-bottom', state.diffPlacement === 'bottom');
+      layoutEl.classList.toggle('diff-right', state.diffPlacement === 'right');
       layoutEl.style.setProperty('--pane-columns', paneColumnsTemplate());
+      layoutEl.style.setProperty('--main-pane-columns', mainPaneColumnsTemplate());
+      layoutEl.style.setProperty('--diff-pane-height', Math.round(clampedDiffPaneHeight(state.diffPaneHeight)) + 'px');
+      const diffDivider = document.querySelector('[data-divider="2"]');
+      diffDivider?.setAttribute('aria-orientation', state.diffPlacement === 'bottom' ? 'horizontal' : 'vertical');
+      diffDivider?.setAttribute('title', state.diffPlacement === 'bottom' ? 'Resize diff preview' : 'Resize panes');
       scheduleCommitGraphOverlay();
     }
 
     function paneColumnsTemplate() {
-      return state.paneColumns.map((width) => Math.round(width) + 'px').join(' 0px ');
+      return state.paneColumns.map((width) => Math.round(width) + 'px').join(' 4px ');
+    }
+
+    function mainPaneColumnsTemplate() {
+      const branchWidth = Math.round(state.paneColumns[0]);
+      const commitWidth = Math.round(state.paneColumns[1]);
+      const filesWidth = Math.round(state.paneColumns[2]);
+      return branchWidth + 'px 4px minmax(' + commitWidth + 'px, 1fr) 4px ' + filesWidth + 'px';
+    }
+
+    function clampedDiffPaneHeight(height) {
+      const toolbarHeight = toolbarEl?.getBoundingClientRect().height || 0;
+      const maxHeight = Math.max(180, window.innerHeight - toolbarHeight - 120);
+      return Math.max(160, Math.min(height, maxHeight));
     }
 
     function commitHeaderCell(label, widthIndex, extraClass = '', visualIndex = widthIndex, totalColumns = state.commitColumns.length) {
@@ -1957,18 +2265,24 @@ export function renderHtml(webview: vscode.Webview): string {
         handle.setAttribute('role', 'separator');
         handle.setAttribute('aria-orientation', 'vertical');
         handle.addEventListener('pointerdown', (event) => startColumnResize(event, widthIndex, handle));
+        handle.addEventListener('mousedown', (event) => startColumnResize(event, widthIndex, handle));
         cell.append(handle);
       }
       return cell;
     }
 
     function startColumnResize(event, index, handle) {
+      if (shouldIgnoreMouseResize(event)) {
+        return;
+      }
+      markResizeStart(event);
       event.preventDefault();
       event.stopPropagation();
       const startX = event.clientX;
       const startWidth = state.commitColumns[index];
       handle.classList.add('dragging');
-      handle.setPointerCapture?.(event.pointerId);
+      capturePointer(handle, event);
+      const events = resizeEventNames(event);
 
       const move = (moveEvent) => {
         const next = Math.max(minColumnWidth(index), startWidth + moveEvent.clientX - startX);
@@ -1978,15 +2292,15 @@ export function renderHtml(webview: vscode.Webview): string {
       };
       const stop = () => {
         handle.classList.remove('dragging');
-        document.removeEventListener('pointermove', move);
-        document.removeEventListener('pointerup', stop);
+        document.removeEventListener(events.move, move);
+        document.removeEventListener(events.up, stop);
         saveLayoutState();
         scheduleCommitGraphOverlay();
         focusSelected();
       };
 
-      document.addEventListener('pointermove', move);
-      document.addEventListener('pointerup', stop, { once: true });
+      document.addEventListener(events.move, move);
+      document.addEventListener(events.up, stop, { once: true });
     }
 
     function minColumnWidth(index) {
@@ -2374,6 +2688,42 @@ export function renderHtml(webview: vscode.Webview): string {
 
     function unshelveChanges() {
       vscode.postMessage({ type: 'unshelveChanges' });
+    }
+
+    function toggleDiffPlacement() {
+      const nextPlacement = state.diffPlacement === 'right' ? 'bottom' : 'right';
+      if (nextPlacement === 'right') {
+        normalizeRightPaneColumns();
+      }
+      state.diffPlacement = nextPlacement;
+      applyPaneColumns();
+      saveLayoutState();
+      renderChrome();
+      focusSelected();
+    }
+
+    function normalizeRightPaneColumns() {
+      const available = Math.max(900, layoutEl.getBoundingClientRect().width - 12);
+      const current = state.paneColumns.map((width) => Number(width) || 0);
+      const minimums = [120, 320, 160, 260];
+      const preferred = [180, 560, 280, 520];
+      const oversized = current.reduce((sum, width) => sum + width, 0) > available;
+      const source = oversized ? preferred : current.map((width, index) => Math.max(width, preferred[index]));
+      const total = source.reduce((sum, width) => sum + width, 0);
+      if (total <= available) {
+        state.paneColumns = source;
+        return;
+      }
+      const minTotal = minimums.reduce((sum, width) => sum + width, 0);
+      const flexTotal = source.reduce((sum, width, index) => sum + Math.max(0, width - minimums[index]), 0);
+      const scale = flexTotal > 0 ? Math.max(0, available - minTotal) / flexTotal : 0;
+      state.paneColumns = source.map((width, index) => minimums[index] + Math.max(0, width - minimums[index]) * scale);
+    }
+
+    function toggleDetails() {
+      state.detailsVisible = !state.detailsVisible;
+      saveLayoutState();
+      renderChrome();
     }
 
     function toggleDiffView() {
@@ -2923,6 +3273,11 @@ export function renderHtml(webview: vscode.Webview): string {
       return widths.every((item) => Number.isFinite(item) && item > 0) ? widths : fallback.slice();
     }
 
+    function validDimension(value, fallback, minimum) {
+      const dimension = Number(value);
+      return Number.isFinite(dimension) && dimension >= minimum ? dimension : fallback;
+    }
+
     function normalizedCommitColumns(value, version) {
       const widths = validWidths(value, [72, 74, 120, 142, 360], 5)
         .map((width, index) => Math.max(width, [72, 54, 72, 92, 160][index] || 80));
@@ -2946,8 +3301,11 @@ export function renderHtml(webview: vscode.Webview): string {
         commitSearch: state.commitSearch,
         fileSearch: state.fileSearch,
         fileFilter: state.fileFilter,
+        diffPlacement: state.diffPlacement,
         diffView: state.diffView,
+        detailsVisible: state.detailsVisible,
         paneColumns: state.paneColumns,
+        diffPaneHeight: state.diffPaneHeight,
         commitColumns: state.commitColumns
       });
     }
@@ -2960,11 +3318,14 @@ export function renderHtml(webview: vscode.Webview): string {
       state.commitSearch = '';
       state.fileSearch = '';
       state.fileFilter = 'all';
+      state.diffPlacement = 'bottom';
       state.diffView = 'unified';
+      state.detailsVisible = false;
       state.collapsedHunks = [];
       state.currentHunkIndex = -1;
       setFilesLoading(false);
       state.paneColumns = [180, 560, 280, 520];
+      state.diffPaneHeight = 280;
       state.commitColumns = [72, 74, 120, 142, 360];
       branchSearchEl.value = '';
       commitSearchEl.value = '';
