@@ -1,10 +1,14 @@
 import * as vscode from 'vscode';
 import { graphWebviewScript } from './gitToolWindowGraphScript';
 
-export function renderHtml(webview: vscode.Webview): string {
+export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   const nonce = getNonce();
+  const codiconCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'codicon.css'));
+  const icon = (name: string, label: string): string =>
+    `<span class="codicon codicon-${name}" aria-hidden="true"></span><span class="sr-only">${label}</span>`;
   const csp = [
     "default-src 'none'",
+    `font-src ${webview.cspSource}`,
     `style-src ${webview.cspSource} 'unsafe-inline'`,
     `script-src 'nonce-${nonce}'`
   ].join('; ');
@@ -15,6 +19,7 @@ export function renderHtml(webview: vscode.Webview): string {
   <meta charset="utf-8">
   <meta http-equiv="Content-Security-Policy" content="${csp}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="${codiconCssUri}">
   <style>
     :root {
       color-scheme: light dark;
@@ -90,6 +95,30 @@ export function renderHtml(webview: vscode.Webview): string {
     button:disabled {
       opacity: 0.45;
       cursor: default;
+    }
+    .icon-button {
+      width: 28px;
+      min-width: 28px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+    }
+    .icon-button .codicon {
+      font-size: 16px;
+      line-height: 1;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
     }
     .toolbar button {
       flex: 0 0 auto;
@@ -278,6 +307,14 @@ export function renderHtml(webview: vscode.Webview): string {
       border: 1px solid transparent;
       border-radius: 3px;
       font-size: 11px;
+    }
+    .pane-title button.icon-button {
+      width: 24px;
+      min-width: 24px;
+      padding: 0;
+    }
+    .pane-title button.icon-button .codicon {
+      font-size: 14px;
     }
     .pane-title button.active {
       color: var(--vscode-button-foreground);
@@ -871,7 +908,9 @@ export function renderHtml(webview: vscode.Webview): string {
       display: block;
     }
     .context-menu button {
-      display: block;
+      display: flex;
+      align-items: center;
+      gap: 8px;
       width: 100%;
       height: 26px;
       padding: 0 10px;
@@ -880,6 +919,17 @@ export function renderHtml(webview: vscode.Webview): string {
       border: 0;
       border-radius: 0;
       text-align: left;
+    }
+    .context-menu button .codicon {
+      flex: 0 0 auto;
+      font-size: 15px;
+      line-height: 1;
+    }
+    .context-menu button .menu-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .context-menu button:hover:not(:disabled),
     .context-menu button:focus:not(:disabled) {
@@ -987,23 +1037,23 @@ export function renderHtml(webview: vscode.Webview): string {
         <div class="error" id="error"></div>
       </div>
       <div class="toolbar-actions">
-        <button id="checkoutBranch" title="Checkout selected branch (b)">Checkout</button>
-        <button id="branchActions" title="Show branch actions">Branch</button>
-        <button id="copyHash" title="Copy selected commit hash (y)">Hash</button>
-        <button id="commitActions" title="Show selected commit actions">Actions</button>
-        <button id="openFile" title="Open selected file at this revision (p)">Revision</button>
-        <button id="openWorkingFile" title="Open selected working tree file (w)">Worktree</button>
-        <button id="openDiff" title="Open selected file diff (o)">Diff</button>
-        <button id="toggleDiffPlacementToolbar" title="Dock diff preview on the right">Dock Right</button>
-        <button id="toggleDetailsToolbar" title="Show selection details">Details</button>
-        <button id="stageChange" title="Stage selected local change">Stage</button>
-        <button id="unstageChange" title="Unstage selected local change">Unstage</button>
-        <button id="commitChanges" title="Commit staged changes">Commit</button>
-        <button id="shelveChanges" title="Shelve local changes">Shelve</button>
-        <button id="unshelveChanges" title="Unshelve saved changes">Unshelve</button>
-        <button id="showHelp" title="Show keyboard shortcuts (F1)">Keys</button>
-        <button id="resetLayout" title="Reset panel layout">Reset</button>
-        <button id="refresh" title="Refresh">Refresh</button>
+        <button class="icon-button" id="checkoutBranch" title="Checkout selected branch (b)" aria-label="Checkout selected branch">${icon('git-branch', 'Checkout selected branch')}</button>
+        <button class="icon-button" id="branchActions" title="Show branch actions" aria-label="Show branch actions">${icon('git-branch', 'Show branch actions')}</button>
+        <button class="icon-button" id="copyHash" title="Copy selected commit hash (y)" aria-label="Copy selected commit hash">${icon('copy', 'Copy selected commit hash')}</button>
+        <button class="icon-button" id="commitActions" title="Show selected commit actions" aria-label="Show selected commit actions">${icon('ellipsis', 'Show selected commit actions')}</button>
+        <button class="icon-button" id="openFile" title="Open selected file at this revision (p)" aria-label="Open selected file at this revision">${icon('go-to-file', 'Open selected file at this revision')}</button>
+        <button class="icon-button" id="openWorkingFile" title="Open selected working tree file (w)" aria-label="Open selected working tree file">${icon('file', 'Open selected working tree file')}</button>
+        <button class="icon-button" id="openDiff" title="Open selected file diff (o)" aria-label="Open selected file diff">${icon('diff', 'Open selected file diff')}</button>
+        <button class="icon-button" id="toggleDiffPlacementToolbar" title="Dock diff preview on the right" aria-label="Dock diff preview on the right">${icon('layout-panel-right', 'Dock diff preview on the right')}</button>
+        <button class="icon-button" id="toggleDetailsToolbar" title="Show selection details" aria-label="Show selection details">${icon('inspect', 'Show selection details')}</button>
+        <button class="icon-button" id="stageChange" title="Stage selected local change" aria-label="Stage selected local change">${icon('add', 'Stage selected local change')}</button>
+        <button class="icon-button" id="unstageChange" title="Unstage selected local change" aria-label="Unstage selected local change">${icon('remove', 'Unstage selected local change')}</button>
+        <button class="icon-button" id="commitChanges" title="Commit staged changes" aria-label="Commit staged changes">${icon('git-commit', 'Commit staged changes')}</button>
+        <button class="icon-button" id="shelveChanges" title="Shelve local changes" aria-label="Shelve local changes">${icon('archive', 'Shelve local changes')}</button>
+        <button class="icon-button" id="unshelveChanges" title="Unshelve saved changes" aria-label="Unshelve saved changes">${icon('repo-pull', 'Unshelve saved changes')}</button>
+        <button class="icon-button" id="showHelp" title="Show keyboard shortcuts (F1)" aria-label="Show keyboard shortcuts">${icon('keyboard', 'Show keyboard shortcuts')}</button>
+        <button class="icon-button" id="resetLayout" title="Reset panel layout" aria-label="Reset panel layout">${icon('debug-restart', 'Reset panel layout')}</button>
+        <button class="icon-button" id="refresh" title="Refresh" aria-label="Refresh">${icon('refresh', 'Refresh')}</button>
       </div>
     </div>
     <main class="layout diff-bottom">
@@ -1011,9 +1061,9 @@ export function renderHtml(webview: vscode.Webview): string {
         <div class="pane-title branch-title">
           <span>Branches</span>
           <input id="branchSearch" type="search" aria-label="Search branches" placeholder="Search">
-          <button data-branch-filter="all" title="Show all branches">All</button>
-          <button data-branch-filter="local" title="Show local branches">L</button>
-          <button data-branch-filter="remote" title="Show remote branches">R</button>
+          <button class="icon-button" data-branch-filter="all" title="Show all branches" aria-label="Show all branches">${icon('list-selection', 'Show all branches')}</button>
+          <button class="icon-button" data-branch-filter="local" title="Show local branches" aria-label="Show local branches">${icon('repo', 'Show local branches')}</button>
+          <button class="icon-button" data-branch-filter="remote" title="Show remote branches" aria-label="Show remote branches">${icon('cloud', 'Show remote branches')}</button>
         </div>
         <div class="list" id="branches" role="listbox" aria-label="Branches"></div>
       </section>
@@ -1021,14 +1071,14 @@ export function renderHtml(webview: vscode.Webview): string {
       <section class="pane commit-pane" data-pane="commits">
         <div class="pane-title commit-title">
           <span>Commits</span>
-          <button data-mode="log" title="Show selected branch log">Log</button>
-          <button data-mode="outgoing" title="Show current branch commits not in selected branch">Out</button>
-          <button data-mode="incoming" title="Show selected branch commits not in current branch">In</button>
-          <button data-mode="files" title="Show aggregate changed files between current and selected branch">Files</button>
-          <button data-mode="changes" title="Show local working tree changes">Local</button>
+          <button class="icon-button" data-mode="log" title="Show selected branch log" aria-label="Show selected branch log">${icon('history', 'Show selected branch log')}</button>
+          <button class="icon-button" data-mode="outgoing" title="Show current branch commits not in selected branch" aria-label="Show outgoing commits">${icon('arrow-up', 'Show outgoing commits')}</button>
+          <button class="icon-button" data-mode="incoming" title="Show selected branch commits not in current branch" aria-label="Show incoming commits">${icon('arrow-down', 'Show incoming commits')}</button>
+          <button class="icon-button" data-mode="files" title="Show aggregate changed files between current and selected branch" aria-label="Show changed files">${icon('files', 'Show changed files')}</button>
+          <button class="icon-button" data-mode="changes" title="Show local working tree changes" aria-label="Show local working tree changes">${icon('repo', 'Show local working tree changes')}</button>
           <span class="history-chip" id="historyChip" hidden>
             <span class="history-chip-label" id="historyChipLabel"></span>
-            <button class="history-close" id="clearHistory" title="Return to branch log" aria-label="Return to branch log">x</button>
+            <button class="history-close icon-button" id="clearHistory" title="Return to branch log" aria-label="Return to branch log">${icon('close', 'Return to branch log')}</button>
           </span>
           <input id="commitSearch" type="search" aria-label="Search commits" placeholder="Search">
         </div>
@@ -1040,11 +1090,11 @@ export function renderHtml(webview: vscode.Webview): string {
         <div class="pane-title file-title">
           <span>Files</span>
           <input id="fileSearch" type="search" aria-label="Search changed files" placeholder="Search">
-          <button data-file-filter="all" title="Show all files">All</button>
-          <button data-file-filter="A" title="Show added files">A</button>
-          <button data-file-filter="M" title="Show modified files">M</button>
-          <button data-file-filter="D" title="Show deleted files">D</button>
-          <button data-file-filter="R" title="Show renamed files">R</button>
+          <button class="icon-button" data-file-filter="all" title="Show all files" aria-label="Show all files">${icon('list-selection', 'Show all files')}</button>
+          <button class="icon-button" data-file-filter="A" title="Show added files" aria-label="Show added files">${icon('diff-added', 'Show added files')}</button>
+          <button class="icon-button" data-file-filter="M" title="Show modified files" aria-label="Show modified files">${icon('diff-modified', 'Show modified files')}</button>
+          <button class="icon-button" data-file-filter="D" title="Show deleted files" aria-label="Show deleted files">${icon('diff-removed', 'Show deleted files')}</button>
+          <button class="icon-button" data-file-filter="R" title="Show renamed files" aria-label="Show renamed files">${icon('diff-renamed', 'Show renamed files')}</button>
         </div>
         <div class="list" id="files" role="listbox" aria-label="Changed files"></div>
       </section>
@@ -1053,13 +1103,13 @@ export function renderHtml(webview: vscode.Webview): string {
         <div class="pane-title diff-title">
           <span>Diff Preview</span>
           <span class="diff-stats" id="diffStats"></span>
-          <button id="toggleDiffPlacement" title="Move diff preview to the right">Right</button>
-          <button id="toggleDetails" title="Show selection details">Details</button>
-          <button id="toggleDiffView" title="Toggle side-by-side diff preview">Side</button>
-          <button id="prevFile" title="Previous file ([)">File &lt;</button>
-          <button id="nextFile" title="Next file (])">File &gt;</button>
-          <button id="prevHunk" title="Previous hunk (,)" disabled>Hunk &lt;</button>
-          <button id="nextHunk" title="Next hunk (.)" disabled>Hunk &gt;</button>
+          <button class="icon-button" id="toggleDiffPlacement" title="Move diff preview to the right" aria-label="Move diff preview to the right">${icon('layout-panel-right', 'Move diff preview to the right')}</button>
+          <button class="icon-button" id="toggleDetails" title="Show selection details" aria-label="Show selection details">${icon('inspect', 'Show selection details')}</button>
+          <button class="icon-button" id="toggleDiffView" title="Toggle side-by-side diff preview" aria-label="Toggle side-by-side diff preview">${icon('split-horizontal', 'Toggle side-by-side diff preview')}</button>
+          <button class="icon-button" id="prevFile" title="Previous file ([)" aria-label="Previous file">${icon('arrow-left', 'Previous file')}</button>
+          <button class="icon-button" id="nextFile" title="Next file (])" aria-label="Next file">${icon('arrow-right', 'Next file')}</button>
+          <button class="icon-button" id="prevHunk" title="Previous hunk (,)" aria-label="Previous hunk" disabled>${icon('arrow-up', 'Previous hunk')}</button>
+          <button class="icon-button" id="nextHunk" title="Next hunk (.)" aria-label="Next hunk" disabled>${icon('arrow-down', 'Next hunk')}</button>
         </div>
         <div class="diff-stack">
           <div class="diff" id="diff" tabindex="-1"></div>
@@ -1073,7 +1123,7 @@ export function renderHtml(webview: vscode.Webview): string {
     <div class="help-dialog">
       <div class="help-header">
         <span id="helpTitle">Keyboard Shortcuts</span>
-        <button id="closeHelp" title="Close keyboard shortcuts">Close</button>
+        <button class="icon-button" id="closeHelp" title="Close keyboard shortcuts" aria-label="Close keyboard shortcuts">${icon('close', 'Close keyboard shortcuts')}</button>
       </div>
       <div class="help-grid">
         <div class="help-row"><span><span class="key">j</span> <span class="key">k</span></span><span>Move selection up or down</span></div>
@@ -1499,7 +1549,8 @@ export function renderHtml(webview: vscode.Webview): string {
       detailsEl.hidden = !state.detailsVisible;
       diffStackEl.classList.toggle('details-hidden', !state.detailsVisible);
       const diffViewButton = document.getElementById('toggleDiffView');
-      diffViewButton.textContent = state.diffView === 'side' ? 'Unified' : 'Side';
+      setIconButton(diffViewButton, state.diffView === 'side' ? 'list-unordered' : 'split-horizontal', state.diffView === 'side' ? 'Unified diff preview' : 'Side-by-side diff preview');
+      diffViewButton.title = state.diffView === 'side' ? 'Show unified diff preview' : 'Show side-by-side diff preview';
       diffViewButton.classList.toggle('active', state.diffView === 'side');
       updateDiffNavigation();
       document.querySelectorAll('[data-branch-filter]').forEach((button) => {
@@ -1522,18 +1573,22 @@ export function renderHtml(webview: vscode.Webview): string {
     function updateDiffPlacementButton(button, variant) {
       if (!button) return;
       const movingToBottom = state.diffPlacement === 'right';
-      button.textContent = variant === 'toolbar'
-        ? (movingToBottom ? 'Dock Bottom' : 'Dock Right')
-        : (movingToBottom ? 'Bottom' : 'Right');
+      setIconButton(button, movingToBottom ? 'layout-panel' : 'layout-panel-right', movingToBottom ? 'Dock diff preview at the bottom' : 'Dock diff preview on the right');
       button.title = movingToBottom ? 'Dock diff preview at the bottom' : 'Dock diff preview on the right';
       button.classList.toggle('active', state.diffPlacement === 'right');
     }
 
     function updateDetailsButton(button) {
       if (!button) return;
-      button.textContent = state.detailsVisible ? 'Hide Details' : 'Details';
+      setIconButton(button, state.detailsVisible ? 'eye-closed' : 'inspect', state.detailsVisible ? 'Hide selection details' : 'Show selection details');
       button.title = state.detailsVisible ? 'Hide selection details' : 'Show selection details';
       button.classList.toggle('active', state.detailsVisible);
+    }
+
+    function setIconButton(button, iconName, label) {
+      button.innerHTML = '<span class="codicon codicon-' + escapeHtml(iconName) + '" aria-hidden="true"></span>' +
+        '<span class="sr-only">' + escapeHtml(label) + '</span>';
+      button.setAttribute('aria-label', label);
     }
 
     function toolWindowTitle() {
@@ -3144,8 +3199,61 @@ export function renderHtml(webview: vscode.Webview): string {
       }
 
       contextMenuEl.innerHTML = actions
-        .map((item) => '<button role="menuitem" data-action="' + escapeHtml(item.action) + '"' + (item.disabled ? ' disabled' : '') + '>' + escapeHtml(item.label) + '</button>')
+        .map((item) => '<button role="menuitem" data-action="' + escapeHtml(item.action) + '" title="' + escapeHtml(item.label) + '" aria-label="' + escapeHtml(item.label) + '"' + (item.disabled ? ' disabled' : '') + '>' +
+          '<span class="codicon codicon-' + escapeHtml(actionIconName(item.action)) + '" aria-hidden="true"></span>' +
+          '<span class="menu-label">' + escapeHtml(item.label) + '</span>' +
+        '</button>')
         .join('');
+    }
+
+    function actionIconName(action) {
+      switch (action) {
+        case 'checkoutBranch':
+          return 'git-branch';
+        case 'createBranch':
+        case 'createBranchFromCommit':
+          return 'git-branch-create';
+        case 'compareBranch':
+          return 'compare-changes';
+        case 'mergeBranch':
+          return 'git-merge';
+        case 'rebaseOntoBranch':
+          return 'repo-push';
+        case 'renameBranch':
+          return 'edit';
+        case 'deleteBranch':
+          return 'trash';
+        case 'copyHash':
+          return 'copy';
+        case 'cherryPickCommit':
+          return 'git-pull-request';
+        case 'revertCommit':
+          return 'discard';
+        case 'createTagFromCommit':
+          return 'tag';
+        case 'checkoutCommit':
+          return 'git-commit';
+        case 'stageChange':
+          return 'add';
+        case 'unstageChange':
+          return 'remove';
+        case 'commitChanges':
+          return 'git-commit';
+        case 'shelveChanges':
+          return 'archive';
+        case 'unshelveChanges':
+          return 'repo-pull';
+        case 'openDiff':
+          return 'diff';
+        case 'openFile':
+          return 'go-to-file';
+        case 'openWorkingFile':
+          return 'file';
+        case 'refresh':
+          return 'refresh';
+        default:
+          return 'circle-outline';
+      }
     }
 
     function handleContextMenuClick(event) {

@@ -89,7 +89,8 @@
       {
         "command": "abstractiveScm.amendCommit",
         "title": "Amend Commit...",
-        "category": "Abstractive SCM"
+        "category": "Abstractive SCM",
+        "icon": "$(git-commit)"
       },
       {
         "command": "abstractiveScm.fetch",
@@ -112,17 +113,20 @@
       {
         "command": "abstractiveScm.checkoutBranch",
         "title": "Checkout Branch...",
-        "category": "Abstractive SCM"
+        "category": "Abstractive SCM",
+        "icon": "$(git-branch)"
       },
       {
         "command": "abstractiveScm.createBranch",
         "title": "New Branch...",
-        "category": "Abstractive SCM"
+        "category": "Abstractive SCM",
+        "icon": "$(git-branch-create)"
       },
       {
         "command": "abstractiveScm.deleteBranch",
         "title": "Delete Branch...",
-        "category": "Abstractive SCM"
+        "category": "Abstractive SCM",
+        "icon": "$(trash)"
       },
       {
         "command": "abstractiveScm.compareWithBranch",
@@ -139,17 +143,20 @@
       {
         "command": "abstractiveScm.applyStash",
         "title": "Unshelve",
-        "category": "Abstractive SCM"
+        "category": "Abstractive SCM",
+        "icon": "$(archive)"
       },
       {
         "command": "abstractiveScm.popStash",
         "title": "Unshelve and Remove",
-        "category": "Abstractive SCM"
+        "category": "Abstractive SCM",
+        "icon": "$(repo-pull)"
       },
       {
         "command": "abstractiveScm.dropStash",
         "title": "Delete Shelf",
-        "category": "Abstractive SCM"
+        "category": "Abstractive SCM",
+        "icon": "$(trash)"
       },
       {
         "command": "abstractiveScm.showLog",

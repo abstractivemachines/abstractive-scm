@@ -63,7 +63,7 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this.context.extensionUri]
     };
 
-    webviewView.webview.html = renderHtml(webviewView.webview);
+    webviewView.webview.html = renderHtml(webviewView.webview, this.context.extensionUri);
     webviewView.webview.onDidReceiveMessage((message: WebviewMessage) => void this.handleMessage(message));
   }
 
