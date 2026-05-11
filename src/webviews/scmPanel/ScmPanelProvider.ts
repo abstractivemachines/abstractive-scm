@@ -1,47 +1,16 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { GitService } from './git';
-import { renderHtml } from './gitToolWindowHtml';
-import { gitContentUri } from './gitContentProvider';
-import { changeLabel, GitChange, GitCommit, GitCommitFile } from './models';
+import { GitService } from '../../git';
+import { gitContentUri } from '../../gitContentProvider';
+import { changeLabel, GitChange, GitCommit, GitCommitFile } from '../../models';
+import { renderHtml } from './renderHtml';
+import { ScmPanelMessage, ToolWindowMode } from './protocol';
+import { assertNoUnresolvedConflicts } from '../../git/safety';
 
-type ToolWindowMode = 'log' | 'outgoing' | 'incoming' | 'files' | 'changes' | 'history';
-
-type WebviewMessage =
-  | { type: 'ready' }
-  | { type: 'refresh' }
-  | { type: 'resetLayout' }
-  | { type: 'setMode'; mode: ToolWindowMode }
-  | { type: 'selectBranch'; branch: string }
-  | { type: 'checkoutBranch'; branch: string; remote: boolean }
-  | { type: 'createBranch' }
-  | { type: 'deleteBranch'; branch: string; remote: boolean }
-  | { type: 'renameBranch'; branch: string; remote: boolean }
-  | { type: 'mergeBranch'; branch: string }
-  | { type: 'rebaseOntoBranch'; branch: string }
-  | { type: 'compareBranch'; branch: string }
-  | { type: 'selectCommit'; hash: string }
-  | { type: 'copyCommitHash'; hash: string }
-  | { type: 'cherryPickCommit'; hash: string }
-  | { type: 'revertCommit'; hash: string }
-  | { type: 'createBranchFromCommit'; hash: string }
-  | { type: 'createTagFromCommit'; hash: string }
-  | { type: 'checkoutCommit'; hash: string }
-  | { type: 'selectFile'; hash: string; file: GitCommitFile }
-  | { type: 'selectCompareFile'; file: GitCommitFile }
-  | { type: 'selectLocalChange'; change: GitChange }
-  | { type: 'stageLocalChange'; change: GitChange }
-  | { type: 'unstageLocalChange'; change: GitChange }
-  | { type: 'stageAllLocalChanges' }
-  | { type: 'commitLocalChanges' }
-  | { type: 'shelveLocalChanges' }
-  | { type: 'unshelveChanges' }
-  | { type: 'openLocalChangeDiff'; change: GitChange }
-  | { type: 'openWorkingFile'; file: GitCommitFile | GitChange }
-  | { type: 'openFileAtRevision'; hash: string; file: GitCommitFile }
-  | { type: 'openCompareFileAtRevision'; file: GitCommitFile }
-  | { type: 'openCompareFileDiff'; file: GitCommitFile }
-  | { type: 'openFileDiff'; hash: string; file: GitCommitFile };
+interface DiffContent {
+  original: string;
+  modified: string;
+}
 
 export class GitToolWindowProvider implements vscode.WebviewViewProvider {
   static readonly viewType = 'abstractiveScm.toolWindow';
@@ -53,6 +22,7 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
   private compareBaseBranch = 'HEAD';
   private compareBranch = 'HEAD';
   private historyFilePath = '';
+  private loadGeneration = 0;
 
   constructor(private readonly context: vscode.ExtensionContext, private readonly git: GitService) {}
 
@@ -64,7 +34,7 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
     };
 
     webviewView.webview.html = renderHtml(webviewView.webview, this.context.extensionUri);
-    webviewView.webview.onDidReceiveMessage((message: WebviewMessage) => void this.handleMessage(message));
+    webviewView.webview.onDidReceiveMessage((message: ScmPanelMessage) => void this.handleMessage(message));
   }
 
   refresh(): void {
@@ -80,7 +50,7 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
     await this.loadInitial();
   }
 
-  private async handleMessage(message: WebviewMessage): Promise<void> {
+  private async handleMessage(message: ScmPanelMessage): Promise<void> {
     switch (message.type) {
       case 'ready':
       case 'refresh':
@@ -186,8 +156,12 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
   }
 
   private async loadInitial(): Promise<void> {
+    const generation = ++this.loadGeneration;
     await this.withErrorBoundary(async () => {
       const [branches, branchStatus] = await Promise.all([this.git.branches(), this.git.branchStatus()]);
+      if (generation !== this.loadGeneration) {
+        return;
+      }
       const currentBranch = branchStatus.branch;
       this.currentBranch = currentBranch;
       const selectedBranch = this.selectedBranch ?? currentBranch;
@@ -207,9 +181,10 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
   }
 
   private async loadBranch(branch: string): Promise<void> {
+    const generation = ++this.loadGeneration;
     await this.withErrorBoundary(async () => {
       this.selectedBranch = branch;
-      await this.loadBranchModeData(branch);
+      await this.loadBranchModeData(branch, generation);
     });
   }
 
@@ -221,21 +196,24 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
     await this.loadBranch(this.selectedBranch ?? this.currentBranch);
   }
 
-  private async loadBranchModeData(branch: string): Promise<void> {
+  private async loadBranchModeData(branch: string, generation = this.loadGeneration): Promise<void> {
     if (this.mode === 'changes') {
-      await this.loadLocalChanges();
+      await this.loadLocalChanges(generation);
       return;
     }
     if (this.mode === 'files') {
-      await this.loadCompareFiles(branch);
+      await this.loadCompareFiles(branch, generation);
       return;
     }
     if (this.mode === 'history') {
-      await this.loadFileHistory();
+      await this.loadFileHistory(generation);
       return;
     }
 
     const commits = await this.loadCommitsForBranch(branch);
+    if (generation !== this.loadGeneration) {
+      return;
+    }
     this.post({ type: 'branchData', selectedBranch: branch, mode: this.mode, commits });
     await this.loadFirstCommit(commits);
   }
@@ -254,23 +232,24 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       if (!files[0]) {
         this.post({ type: 'patch', selectedFile: undefined, patch: '' });
       } else if (this.mode === 'history') {
-        const patch = await this.git.commitFilePatch(hash, files[0]);
-        this.post({ type: 'patch', selectedFile: files[0].filePath, patch });
+        await this.postCommitFilePatch(hash, files[0]);
       }
     });
   }
 
   private async loadFilePatch(hash: string, file: GitCommitFile): Promise<void> {
     await this.withErrorBoundary(async () => {
-      const patch = await this.git.commitFilePatch(hash, file);
-      this.post({ type: 'patch', selectedFile: file.filePath, patch });
+      await this.postCommitFilePatch(hash, file);
     });
   }
 
-  private async loadCompareFiles(branch: string): Promise<void> {
+  private async loadCompareFiles(branch: string, generation = this.loadGeneration): Promise<void> {
     this.compareBaseBranch = this.currentBranch;
     this.compareBranch = branch;
     const files = branch === this.currentBranch ? [] : await this.git.branchDiffFiles(this.compareBaseBranch, this.compareBranch);
+    if (generation !== this.loadGeneration) {
+      return;
+    }
     this.post({
       type: 'compareFiles',
       selectedBranch: branch,
@@ -287,20 +266,27 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
   private async loadCompareFilePatch(file: GitCommitFile): Promise<void> {
     await this.withErrorBoundary(async () => {
       const patch = await this.git.branchFilePatch(this.compareBaseBranch, this.compareBranch, file);
-      this.post({ type: 'patch', selectedFile: file.filePath, patch });
+      const content = await this.branchDiffContent(file);
+      this.post({ type: 'patch', selectedFile: file.filePath, patch, ...content });
     });
   }
 
-  private async loadLocalChanges(): Promise<void> {
+  private async loadLocalChanges(generation = this.loadGeneration): Promise<void> {
     const changes = await this.git.status();
+    if (generation !== this.loadGeneration) {
+      return;
+    }
     this.post({ type: 'localChanges', mode: this.mode, files: changes });
     if (!changes[0]) {
       this.post({ type: 'patch', selectedFile: undefined, patch: '' });
     }
   }
 
-  private async loadFileHistory(): Promise<void> {
+  private async loadFileHistory(generation = this.loadGeneration): Promise<void> {
     const commits = this.historyFilePath ? await this.git.fileHistory(this.historyFilePath) : [];
+    if (generation !== this.loadGeneration) {
+      return;
+    }
     this.post({ type: 'fileHistory', mode: this.mode, filePath: this.historyFilePath, commits });
     await this.loadFirstCommit(commits);
   }
@@ -308,15 +294,88 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
   private async loadLocalChangePatch(change: GitChange): Promise<void> {
     await this.withErrorBoundary(async () => {
       const patch = await this.git.localChangePatch(change);
-      this.post({ type: 'patch', selectedFile: localChangeKey(change), patch });
+      const content = await this.localDiffContent(change);
+      this.post({ type: 'patch', selectedFile: localChangeKey(change), patch, ...content });
     });
+  }
+
+  private async postCommitFilePatch(hash: string, file: GitCommitFile): Promise<void> {
+    const patch = await this.git.commitFilePatch(hash, file);
+    const content = await this.commitDiffContent(hash, file);
+    this.post({ type: 'patch', selectedFile: file.filePath, patch, ...content });
+  }
+
+  private async commitDiffContent(hash: string, file: GitCommitFile): Promise<DiffContent> {
+    const parent = await this.git.firstParent(hash);
+    const originalPath = file.originalPath ?? file.filePath;
+    const [original, modified] = await Promise.all([
+      parent && file.status !== 'A' ? this.readFileAtRef(parent, originalPath) : '',
+      file.status !== 'D' ? this.readFileAtRef(hash, file.filePath) : ''
+    ]);
+    return { original, modified };
+  }
+
+  private async branchDiffContent(file: GitCommitFile): Promise<DiffContent> {
+    const baseRef = await this.git.mergeBase(this.compareBaseBranch, this.compareBranch);
+    const originalPath = file.originalPath ?? file.filePath;
+    const [original, modified] = await Promise.all([
+      file.status !== 'A' ? this.readFileAtRef(baseRef, originalPath) : '',
+      file.status !== 'D' ? this.readFileAtRef(this.compareBranch, file.filePath) : ''
+    ]);
+    return { original, modified };
+  }
+
+  private async localDiffContent(change: GitChange): Promise<DiffContent> {
+    if (change.bucket === 'untracked') {
+      return {
+        original: '',
+        modified: await this.readWorkspaceFile(change.filePath)
+      };
+    }
+
+    if (change.bucket === 'staged') {
+      const originalPath = change.originalPath ?? change.filePath;
+      const [original, modified] = await Promise.all([
+        this.readFileAtRef('HEAD', originalPath),
+        change.x !== 'D' ? this.readFileAtRef('index', change.filePath) : ''
+      ]);
+      return { original, modified };
+    }
+
+    const originalPath = change.originalPath ?? change.filePath;
+    const [original, modified] = await Promise.all([
+      this.readFileAtRef('index', originalPath).then(
+        (content) => content,
+        () => this.readFileAtRef('HEAD', originalPath)
+      ),
+      change.y !== 'D' ? this.readWorkspaceFile(change.filePath) : ''
+    ]);
+    return { original, modified };
+  }
+
+  private async readFileAtRef(ref: string, filePath: string): Promise<string> {
+    try {
+      return await this.git.fileAtRef(ref, filePath);
+    } catch {
+      return '';
+    }
+  }
+
+  private async readWorkspaceFile(filePath: string): Promise<string> {
+    try {
+      return await this.git.workspaceFile(filePath);
+    } catch {
+      return '';
+    }
   }
 
   private async checkoutBranch(branch: string, remote: boolean): Promise<void> {
     await this.withErrorBoundary(async () => {
       if (remote) {
+        await assertNoUnresolvedConflicts(this.git, 'checking out another branch');
         await this.git.checkoutRemote(branch);
       } else {
+        await assertNoUnresolvedConflicts(this.git, 'checking out another branch');
         await this.git.checkout(branch);
       }
       this.selectedBranch = undefined;
@@ -403,7 +462,10 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
 
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Abstractive SCM: Merge ${branch}` },
-        () => this.git.mergeBranch(branch)
+        async () => {
+          await assertNoUnresolvedConflicts(this.git, 'merging');
+          await this.git.mergeBranch(branch);
+        }
       );
       await this.loadInitial();
       vscode.window.showInformationMessage(`Merged ${branch} into ${this.currentBranch}`);
@@ -423,7 +485,10 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
 
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Abstractive SCM: Rebase onto ${branch}` },
-        () => this.git.rebaseOntoBranch(branch)
+        async () => {
+          await assertNoUnresolvedConflicts(this.git, 'rebasing');
+          await this.git.rebaseOntoBranch(branch);
+        }
       );
       await this.loadInitial();
       vscode.window.showInformationMessage(`Rebased ${this.currentBranch} onto ${branch}`);

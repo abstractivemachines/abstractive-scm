@@ -26,6 +26,8 @@ This project does not copy JetBrains source, icons, or proprietary UI. It implem
 ```sh
 npm install
 npm run compile
+npm test
+npm run verify
 ```
 
 Open this folder in VS Code and run the `Run Extension` launch target, or press `F5`.

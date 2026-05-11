@@ -517,15 +517,20 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
+    "clean": "rm -rf dist",
+    "copy-monaco": "node scripts/copy-monaco.js",
+    "compile": "npm run clean && npm run copy-monaco && tsc -p ./",
     "watch": "tsc -watch -p ./",
     "check": "tsc -p ./ --noEmit",
-    "package": "vsce package --no-dependencies --allow-missing-repository"
+    "test": "npm run compile && node --test test/**/*.test.js",
+    "verify": "npm run check && npm test",
+    "package": "npm run compile && vsce package --no-dependencies --allow-missing-repository"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/vscode": "^1.96.0",
     "@vscode/vsce": "^3.2.1",
+    "monaco-editor": "^0.55.1",
     "typescript": "^5.7.2"
   }
 }

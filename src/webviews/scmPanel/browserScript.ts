@@ -1,1149 +1,6 @@
-import * as vscode from 'vscode';
-import { graphWebviewScript } from './gitToolWindowGraphScript';
+import { graphWebviewScript } from './graphScript';
 
-export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
-  const nonce = getNonce();
-  const codiconCssUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', 'codicon.css'));
-  const icon = (name: string, label: string): string =>
-    `<span class="codicon codicon-${name}" aria-hidden="true"></span><span class="sr-only">${label}</span>`;
-  const csp = [
-    "default-src 'none'",
-    `font-src ${webview.cspSource}`,
-    `style-src ${webview.cspSource} 'unsafe-inline'`,
-    `script-src 'nonce-${nonce}'`
-  ].join('; ');
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="${csp}">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="${codiconCssUri}">
-  <style>
-    :root {
-      color-scheme: light dark;
-      font-family: var(--vscode-font-family);
-      font-size: var(--vscode-font-size);
-      --scm-pane-accent: var(--vscode-list-focusOutline, var(--vscode-focusBorder));
-      --scm-active-header-background: var(--vscode-list-inactiveSelectionBackground, var(--vscode-sideBar-background));
-      --scm-active-header-foreground: var(--vscode-list-inactiveSelectionForeground, var(--vscode-foreground));
-      --scm-inactive-selection-background: var(--vscode-list-inactiveSelectionBackground, transparent);
-      --scm-inactive-selection-foreground: var(--vscode-list-inactiveSelectionForeground, var(--vscode-editor-foreground));
-      --scm-active-selection-background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground, transparent));
-      --scm-active-selection-foreground: var(--vscode-list-activeSelectionForeground, var(--vscode-editor-foreground));
-    }
-    * {
-      box-sizing: border-box;
-    }
-    body {
-      margin: 0;
-      overflow: hidden;
-      background: var(--vscode-editor-background);
-      color: var(--vscode-editor-foreground);
-    }
-    .shell {
-      display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
-      height: 100vh;
-    }
-    .toolbar {
-      position: relative;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      align-items: stretch;
-      gap: 4px;
-      min-width: 0;
-      min-height: 34px;
-      padding: 4px 10px 6px;
-      border-bottom: 1px solid var(--vscode-sideBar-border);
-      background: var(--vscode-sideBar-background);
-      overflow: hidden;
-    }
-    .toolbar.has-status {
-      min-height: 56px;
-    }
-    .toolbar-status {
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      overflow: hidden;
-    }
-    .toolbar-status[hidden] {
-      display: none;
-    }
-    .title {
-      font-weight: 600;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    button {
-      height: 24px;
-      padding: 0 8px;
-      color: var(--vscode-button-secondaryForeground);
-      background: var(--vscode-button-secondaryBackground);
-      border: 1px solid var(--vscode-button-border, transparent);
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    button:hover {
-      background: var(--vscode-button-secondaryHoverBackground);
-    }
-    button:disabled {
-      opacity: 0.45;
-      cursor: default;
-    }
-    .icon-button {
-      width: 28px;
-      min-width: 28px;
-      padding: 0;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 0;
-    }
-    .icon-button .codicon {
-      font-size: 16px;
-      line-height: 1;
-    }
-    .sr-only {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      padding: 0;
-      margin: -1px;
-      overflow: hidden;
-      clip: rect(0, 0, 0, 0);
-      white-space: nowrap;
-      border: 0;
-    }
-    .toolbar button {
-      flex: 0 0 auto;
-      white-space: nowrap;
-    }
-    .toolbar-actions {
-      min-width: 0;
-      display: flex;
-      align-items: center;
-      justify-content: flex-start;
-      flex-wrap: wrap;
-      gap: 4px;
-      overflow: visible;
-    }
-    .loading {
-      color: var(--vscode-descriptionForeground);
-      font-size: 12px;
-    }
-    .layout {
-      display: grid;
-      min-height: 0;
-      height: 100%;
-    }
-    .layout.diff-right {
-      grid-template-columns: var(--pane-columns, 180px 4px 560px 4px 280px 4px 520px);
-      grid-template-rows: minmax(0, 1fr);
-    }
-    .layout.diff-bottom {
-      grid-template-columns: var(--main-pane-columns, 180px 4px 560px 4px 280px);
-      grid-template-rows: minmax(0, 1fr) 4px minmax(160px, var(--diff-pane-height, 280px));
-    }
-    .pane {
-      position: relative;
-      min-width: 0;
-      min-height: 0;
-      overflow: hidden;
-      border-right: 1px solid var(--vscode-sideBar-border);
-      display: grid;
-      grid-template-rows: 28px minmax(0, 1fr);
-      background: var(--vscode-editor-background);
-      transition: background-color 80ms ease-out;
-    }
-    .pane:last-child {
-      border-right: 0;
-    }
-    .commit-pane {
-      grid-template-rows: 28px auto minmax(0, 1fr);
-    }
-    .diff-pane {
-      grid-template-rows: auto minmax(0, 1fr);
-    }
-    .pane.active-pane {
-      box-shadow: inset 0 2px 0 var(--scm-pane-accent), inset 0 0 0 1px var(--scm-pane-accent);
-    }
-    .pane-divider {
-      width: 4px;
-      min-width: 4px;
-      position: relative;
-      z-index: 4;
-      background: var(--vscode-sideBar-border);
-      cursor: col-resize;
-    }
-    .pane-divider::before {
-      content: "";
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: -4px;
-      width: 12px;
-      cursor: col-resize;
-    }
-    .pane-divider::after {
-      content: "";
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: 1px;
-      width: 1px;
-      background: transparent;
-    }
-    .pane-divider:hover::after,
-    .pane-divider.dragging::after {
-      background: var(--scm-pane-accent);
-    }
-    .layout.diff-bottom [data-pane="branches"] {
-      grid-column: 1;
-      grid-row: 1;
-    }
-    .layout.diff-bottom [data-divider="0"] {
-      grid-column: 2;
-      grid-row: 1;
-    }
-    .layout.diff-bottom [data-pane="commits"] {
-      grid-column: 3;
-      grid-row: 1;
-    }
-    .layout.diff-bottom [data-divider="1"] {
-      grid-column: 4;
-      grid-row: 1;
-    }
-    .layout.diff-bottom [data-pane="files"] {
-      grid-column: 5;
-      grid-row: 1;
-      border-right: 0;
-    }
-    .layout.diff-bottom [data-divider="2"] {
-      grid-column: 1 / -1;
-      grid-row: 2;
-      width: auto;
-      height: 4px;
-      min-height: 4px;
-      cursor: row-resize;
-    }
-    .layout.diff-bottom [data-divider="2"]::before {
-      top: -4px;
-      bottom: auto;
-      left: 0;
-      right: 0;
-      width: auto;
-      height: 12px;
-      cursor: row-resize;
-    }
-    .layout.diff-bottom [data-divider="2"]::after {
-      top: 1px;
-      bottom: auto;
-      left: 0;
-      right: 0;
-      width: auto;
-      height: 1px;
-    }
-    .layout.diff-bottom .diff-pane {
-      grid-column: 1 / -1;
-      grid-row: 3;
-      border-top: 1px solid var(--vscode-sideBar-border);
-      border-right: 0;
-    }
-    .pane-title {
-      position: relative;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 0 10px 0 14px;
-      color: var(--vscode-sideBarTitle-foreground);
-      background: var(--vscode-sideBar-background);
-      border-bottom: 1px solid var(--vscode-sideBar-border);
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-    .pane-title::before {
-      content: "";
-      position: absolute;
-      left: 6px;
-      width: 3px;
-      height: 14px;
-      border-radius: 2px;
-      background: transparent;
-    }
-    .pane.active-pane .pane-title {
-      color: var(--scm-active-header-foreground);
-      background: var(--scm-active-header-background);
-      border-bottom-color: var(--scm-pane-accent);
-    }
-    .pane.active-pane .pane-title::before {
-      background: var(--scm-pane-accent);
-    }
-    .pane-title input {
-      width: 100%;
-      min-width: 80px;
-      height: 20px;
-      padding: 0 6px;
-      color: var(--vscode-input-foreground);
-      background: var(--vscode-input-background);
-      border: 1px solid var(--vscode-input-border, transparent);
-      border-radius: 3px;
-      font-size: 12px;
-      text-transform: none;
-      font-weight: 400;
-    }
-    .pane-title button {
-      height: 20px;
-      min-width: 24px;
-      padding: 0 6px;
-      color: var(--vscode-button-secondaryForeground);
-      background: transparent;
-      border: 1px solid transparent;
-      border-radius: 3px;
-      font-size: 11px;
-    }
-    .pane-title button.icon-button {
-      width: 24px;
-      min-width: 24px;
-      padding: 0;
-    }
-    .pane-title button.icon-button .codicon {
-      font-size: 14px;
-    }
-    .pane-title button.active {
-      color: var(--vscode-button-foreground);
-      background: var(--vscode-button-background);
-    }
-    .history-chip {
-      display: inline-grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: center;
-      flex: 0 1 260px;
-      min-width: 0;
-      max-width: 260px;
-      height: 20px;
-      padding: 0 2px 0 7px;
-      color: var(--vscode-badge-foreground);
-      background: var(--vscode-badge-background);
-      border: 1px solid var(--vscode-button-border, transparent);
-      border-radius: 3px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: none;
-    }
-    .history-chip[hidden] {
-      display: none;
-    }
-    .history-chip-label {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .pane-title .history-close {
-      width: 18px;
-      min-width: 18px;
-      height: 18px;
-      padding: 0;
-      color: inherit;
-      background: transparent;
-      border: 0;
-      opacity: 0.8;
-      line-height: 16px;
-    }
-    .pane-title .history-close:hover {
-      opacity: 1;
-      background: color-mix(in srgb, currentColor 16%, transparent);
-    }
-    .branch-title {
-      display: grid;
-      grid-template-columns: auto minmax(70px, 1fr) auto auto auto;
-    }
-    .file-title {
-      display: grid;
-      grid-template-columns: auto minmax(70px, 1fr) auto auto auto auto auto;
-    }
-    .commit-title {
-      display: flex;
-    }
-    .commit-title input {
-      flex: 1 1 90px;
-    }
-    .diff-title {
-      flex-wrap: wrap;
-      min-height: 28px;
-      height: auto;
-    }
-    .list,
-    .grid,
-    .diff {
-      overflow: auto;
-      min-height: 0;
-    }
-    .diff:focus {
-      outline: none;
-    }
-    .grid {
-      position: relative;
-    }
-    .list {
-      position: relative;
-    }
-    .list.loading-files .row {
-      opacity: 0.58;
-    }
-    .list.loading-files::after {
-      content: "Loading files...";
-      position: sticky;
-      bottom: 0;
-      display: block;
-      padding: 5px 10px;
-      color: var(--vscode-descriptionForeground);
-      background: var(--vscode-sideBar-background);
-      border-top: 1px solid var(--vscode-sideBar-border);
-      font-size: 11px;
-    }
-    .diff-stack {
-      display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
-      min-height: 0;
-    }
-    .diff-stack.details-hidden {
-      grid-template-rows: minmax(0, 1fr);
-    }
-    .row {
-      width: 100%;
-      display: grid;
-      gap: 2px;
-      padding: 6px 10px;
-      border: 0;
-      border-bottom: 1px solid var(--vscode-sideBar-border);
-      color: var(--vscode-editor-foreground);
-      background: transparent;
-      text-align: left;
-      cursor: pointer;
-    }
-    .row:hover {
-      background: var(--vscode-list-hoverBackground, color-mix(in srgb, var(--vscode-editor-foreground) 6%, transparent));
-    }
-    .row.selected {
-      color: var(--scm-inactive-selection-foreground);
-      background: var(--scm-inactive-selection-background);
-      box-shadow: inset 3px 0 0 var(--scm-pane-accent);
-    }
-    .row.focused {
-      outline: 1px solid var(--scm-pane-accent);
-      outline-offset: -1px;
-    }
-    .row.selected.focused {
-      box-shadow: inset 4px 0 0 var(--scm-pane-accent);
-    }
-    .row.selected:hover {
-      background: var(--scm-inactive-selection-background);
-    }
-    .pane.active-pane .row:hover:not(.selected) {
-      background: var(--vscode-list-hoverBackground, transparent);
-    }
-    .pane.active-pane .row.selected {
-      color: var(--scm-active-selection-foreground);
-      background: var(--scm-active-selection-background);
-      box-shadow: inset 4px 0 0 var(--scm-pane-accent);
-    }
-    .pane.active-pane .row.selected:hover {
-      background: var(--scm-active-selection-background);
-    }
-    .primary,
-    .secondary {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .primary {
-      font-weight: 500;
-    }
-    .secondary {
-      color: var(--vscode-descriptionForeground);
-      font-size: 12px;
-    }
-    .selected .secondary {
-      color: inherit;
-      opacity: 0.82;
-    }
-    .branch-row {
-      grid-template-columns: minmax(0, 1fr) auto;
-    }
-    .commit-header,
-    .commit-row {
-      grid-template-columns: var(--commit-columns, 56px 74px 120px 142px minmax(220px, 1fr));
-      align-items: center;
-      column-gap: 8px;
-    }
-    .commit-header {
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      display: grid;
-      min-height: 26px;
-      padding: 0 10px;
-      border-bottom: 1px solid var(--vscode-sideBar-border);
-      color: var(--vscode-descriptionForeground);
-      background: var(--vscode-sideBar-background);
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-    }
-    .pane.active-pane .commit-header {
-      color: var(--scm-active-header-foreground);
-      background: var(--scm-active-header-background);
-    }
-    .commit-summary {
-      min-width: 0;
-      height: 50px;
-      padding: 7px 10px;
-      overflow: hidden;
-      border-bottom: 1px solid var(--vscode-sideBar-border);
-      background: var(--vscode-editor-background);
-    }
-    .commit-summary[hidden] {
-      display: none;
-    }
-    .commit-summary-title {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-weight: 600;
-    }
-    .commit-summary-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px 12px;
-      margin-top: 3px;
-      color: var(--vscode-descriptionForeground);
-      font-size: 11px;
-      max-height: 16px;
-      overflow: hidden;
-    }
-    .commit-summary-meta span {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .commit-column {
-      position: relative;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .commit-header .commit-column {
-      align-self: stretch;
-      display: flex;
-      align-items: center;
-    }
-    .resize-handle {
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: 8px;
-      height: 100%;
-      cursor: col-resize;
-      z-index: 2;
-    }
-    .resize-handle::after {
-      content: "";
-      position: absolute;
-      top: 5px;
-      right: 3px;
-      width: 1px;
-      height: calc(100% - 10px);
-      background: var(--vscode-sideBar-border);
-    }
-    .resize-handle:hover::after,
-    .resize-handle.dragging::after {
-      background: var(--vscode-focusBorder);
-    }
-    .graph {
-      min-width: 0;
-      overflow: hidden;
-      text-align: left;
-    }
-    .commit-row.has-graph .hash {
-      grid-column: 2;
-    }
-    .commit-row.has-graph .author {
-      grid-column: 3;
-    }
-    .commit-row.has-graph .date {
-      grid-column: 4;
-    }
-    .commit-row.has-graph .subject {
-      grid-column: 5;
-    }
-    .commit-graph-overlay {
-      position: absolute;
-      z-index: 1;
-      pointer-events: none;
-      overflow: visible;
-    }
-    .graph-line {
-      stroke-width: 2.15;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      fill: none;
-      opacity: 0.72;
-    }
-    .graph-line.primary {
-      opacity: 1;
-      stroke-width: 2.7;
-    }
-    .graph-node {
-      fill: var(--vscode-editor-background);
-      stroke-width: 2.2;
-    }
-    .graph-node-inner {
-      fill: currentColor;
-      opacity: 0;
-    }
-    .graph-node.selected {
-      fill: color-mix(in srgb, currentColor 16%, var(--vscode-editor-background));
-      stroke-width: 2.9;
-    }
-    .graph-node-inner.selected {
-      opacity: 1;
-    }
-    .author,
-    .date,
-    .subject {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .date,
-    .author {
-      color: var(--vscode-descriptionForeground);
-      font-size: 12px;
-    }
-    .selected .date,
-    .selected .author {
-      color: inherit;
-      opacity: 0.82;
-    }
-    .subject-line {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      min-width: 0;
-      overflow: hidden;
-    }
-    .subject-text {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .ref-labels {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      min-width: 0;
-      flex: 0 1 auto;
-      overflow: hidden;
-    }
-    .ref-label {
-      max-width: 120px;
-      padding: 0 5px;
-      color: var(--vscode-badge-foreground);
-      background: var(--vscode-badge-background);
-      border-radius: 3px;
-      font-size: 10px;
-      font-weight: 600;
-      line-height: 16px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      text-transform: none;
-    }
-    .ref-label.remote {
-      color: var(--vscode-gitDecoration-modifiedResourceForeground);
-      background: color-mix(in srgb, var(--vscode-gitDecoration-modifiedResourceForeground) 18%, transparent);
-    }
-    .ref-label.tag {
-      color: var(--vscode-gitDecoration-addedResourceForeground);
-      background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 18%, transparent);
-    }
-    .ref-label.head {
-      color: var(--vscode-editor-background);
-      background: var(--vscode-focusBorder);
-    }
-    .branch-kind {
-      color: var(--vscode-descriptionForeground);
-      font-size: 11px;
-    }
-    .status {
-      justify-self: end;
-      min-width: 18px;
-      color: var(--vscode-descriptionForeground);
-      font-size: 11px;
-      font-weight: 600;
-      text-align: right;
-    }
-    .status.added {
-      color: var(--vscode-gitDecoration-addedResourceForeground);
-    }
-    .status.modified {
-      color: var(--vscode-gitDecoration-modifiedResourceForeground);
-    }
-    .status.deleted {
-      color: var(--vscode-gitDecoration-deletedResourceForeground);
-    }
-    .status.renamed {
-      color: var(--vscode-gitDecoration-renamedResourceForeground, var(--vscode-gitDecoration-modifiedResourceForeground));
-    }
-    .hash {
-      color: var(--vscode-gitDecoration-modifiedResourceForeground);
-      font-family: var(--vscode-editor-font-family);
-      font-size: 12px;
-    }
-    .file-row {
-      grid-template-columns: 24px minmax(0, 1fr) auto;
-      align-items: center;
-      column-gap: 8px;
-    }
-    .file-icon {
-      justify-self: center;
-      width: 22px;
-      overflow: hidden;
-      color: var(--vscode-descriptionForeground);
-      font-size: 11px;
-      font-weight: 700;
-      line-height: 1;
-      text-align: center;
-      text-transform: uppercase;
-    }
-    .file-icon.type-ts,
-    .file-icon.type-js,
-    .file-icon.type-jsx,
-    .file-icon.type-tsx {
-      color: var(--vscode-charts-blue);
-    }
-    .file-icon.type-json {
-      color: var(--vscode-charts-yellow);
-    }
-    .file-icon.type-md,
-    .file-icon.type-mdx {
-      color: var(--vscode-gitDecoration-modifiedResourceForeground);
-    }
-    .file-icon.type-css,
-    .file-icon.type-scss,
-    .file-icon.type-less {
-      color: var(--vscode-charts-purple);
-    }
-    .file-icon.type-html,
-    .file-icon.type-svg {
-      color: var(--vscode-charts-orange);
-    }
-    .empty {
-      padding: 12px 10px;
-      color: var(--vscode-descriptionForeground);
-    }
-    .details {
-      min-height: 134px;
-      max-height: 180px;
-      overflow: auto;
-      scrollbar-gutter: stable;
-      padding: 8px 12px;
-      border-top: 1px solid var(--vscode-sideBar-border);
-      background: var(--vscode-sideBar-background);
-    }
-    .details[hidden] {
-      display: none;
-    }
-    .details-title {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-weight: 600;
-      margin-bottom: 4px;
-      min-height: 17px;
-    }
-    .details-meta {
-      color: var(--vscode-descriptionForeground);
-      font-size: 12px;
-      line-height: 1.45;
-      min-height: 18px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .details-body {
-      margin-top: 6px;
-      color: var(--vscode-editor-foreground);
-      font-family: var(--vscode-editor-font-family);
-      font-size: 12px;
-      white-space: pre-wrap;
-    }
-    .details-row {
-      display: grid;
-      grid-template-columns: 92px minmax(0, 1fr);
-      column-gap: 8px;
-      min-height: 18px;
-      line-height: 1.45;
-      font-size: 12px;
-    }
-    .details-label {
-      color: var(--vscode-descriptionForeground);
-    }
-    .details-value {
-      min-width: 0;
-      overflow-wrap: anywhere;
-    }
-    pre {
-      margin: 0;
-      padding: 8px 0;
-      font-family: var(--vscode-editor-font-family);
-      font-size: var(--vscode-editor-font-size);
-      line-height: 1.45;
-    }
-    .line {
-      display: block;
-      min-height: 1.45em;
-      padding: 0 12px;
-      white-space: pre;
-    }
-    .line.add {
-      color: var(--vscode-gitDecoration-addedResourceForeground);
-      background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 12%, transparent);
-    }
-    .line.del {
-      color: var(--vscode-gitDecoration-deletedResourceForeground);
-      background: color-mix(in srgb, var(--vscode-gitDecoration-deletedResourceForeground) 12%, transparent);
-    }
-    .line.hunk {
-      color: var(--vscode-gitDecoration-modifiedResourceForeground);
-      background: var(--vscode-editor-lineHighlightBackground);
-      cursor: pointer;
-      user-select: none;
-    }
-    .line.current-hunk {
-      outline: 1px solid var(--vscode-focusBorder);
-      outline-offset: -1px;
-      background: color-mix(in srgb, var(--vscode-gitDecoration-modifiedResourceForeground) 18%, var(--vscode-editor-lineHighlightBackground));
-    }
-    .line.meta {
-      color: var(--vscode-descriptionForeground);
-    }
-    .word-change {
-      border-radius: 2px;
-      background: color-mix(in srgb, currentColor 26%, transparent);
-    }
-    .diff-stats {
-      align-self: center;
-      color: var(--vscode-descriptionForeground);
-      font-size: 11px;
-      font-weight: 500;
-      text-transform: none;
-      white-space: nowrap;
-    }
-    .diff-side {
-      min-width: max-content;
-      padding: 8px 0;
-      font-family: var(--vscode-editor-font-family);
-      font-size: var(--vscode-editor-font-size);
-      line-height: 1.45;
-    }
-    .diff-side-row {
-      display: grid;
-      grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr);
-    }
-    .diff-side-row.meta,
-    .diff-side-row.hunk {
-      display: block;
-    }
-    .diff-cell {
-      min-height: 1.45em;
-      padding: 0 12px;
-      white-space: pre;
-      border-right: 1px solid var(--vscode-sideBar-border);
-    }
-    .diff-cell:last-child {
-      border-right: 0;
-    }
-    .diff-cell.add {
-      color: var(--vscode-gitDecoration-addedResourceForeground);
-      background: color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground) 12%, transparent);
-    }
-    .diff-cell.del {
-      color: var(--vscode-gitDecoration-deletedResourceForeground);
-      background: color-mix(in srgb, var(--vscode-gitDecoration-deletedResourceForeground) 12%, transparent);
-    }
-    .error {
-      color: var(--vscode-errorForeground);
-      padding-left: 8px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .context-menu {
-      position: fixed;
-      z-index: 20;
-      min-width: 180px;
-      padding: 4px;
-      display: none;
-      background: var(--vscode-menu-background);
-      color: var(--vscode-menu-foreground);
-      border: 1px solid var(--vscode-menu-border, var(--vscode-sideBar-border));
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
-    }
-    .context-menu.open {
-      display: block;
-    }
-    .context-menu button {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      width: 100%;
-      height: 26px;
-      padding: 0 10px;
-      color: var(--vscode-menu-foreground);
-      background: transparent;
-      border: 0;
-      border-radius: 0;
-      text-align: left;
-    }
-    .context-menu button .codicon {
-      flex: 0 0 auto;
-      font-size: 15px;
-      line-height: 1;
-    }
-    .context-menu button .menu-label {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .context-menu button:hover:not(:disabled),
-    .context-menu button:focus:not(:disabled) {
-      color: var(--vscode-menu-selectionForeground);
-      background: var(--vscode-menu-selectionBackground);
-    }
-    .help-overlay {
-      position: fixed;
-      inset: 0;
-      z-index: 30;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      padding: 20px;
-      background: rgba(0, 0, 0, 0.36);
-    }
-    .help-overlay.open {
-      display: flex;
-    }
-    .help-dialog {
-      width: min(620px, 100%);
-      max-height: min(680px, 100%);
-      overflow: auto;
-      color: var(--vscode-editor-foreground);
-      background: var(--vscode-editor-background);
-      border: 1px solid var(--vscode-sideBar-border);
-      box-shadow: 0 10px 34px rgba(0, 0, 0, 0.34);
-    }
-    .help-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--vscode-sideBar-border);
-      font-weight: 600;
-    }
-    .help-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px 18px;
-      padding: 12px;
-    }
-    .help-row {
-      display: grid;
-      grid-template-columns: 96px minmax(0, 1fr);
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-    }
-    .key {
-      display: inline-block;
-      min-width: 24px;
-      padding: 1px 6px;
-      color: var(--vscode-editor-foreground);
-      background: var(--vscode-keybindingLabel-background);
-      border: 1px solid var(--vscode-keybindingLabel-border, var(--vscode-sideBar-border));
-      border-bottom-color: var(--vscode-keybindingLabel-bottomBorder, var(--vscode-sideBar-border));
-      border-radius: 3px;
-      font-family: var(--vscode-editor-font-family);
-      font-size: 11px;
-      text-align: center;
-      white-space: nowrap;
-    }
-    @media (max-width: 980px) {
-      .layout.diff-right {
-        grid-template-columns: var(--pane-columns, 150px 4px 420px 4px 220px 4px 360px);
-      }
-      .commit-header,
-      .commit-row {
-        grid-template-columns: 22px 64px minmax(180px, 1fr);
-      }
-      .author,
-      .date,
-      .commit-header .author-col,
-      .commit-header .date-col {
-        display: none;
-      }
-      .layout.diff-right .diff-pane {
-        grid-column: 1 / -1;
-        border-top: 1px solid var(--vscode-sideBar-border);
-      }
-    }
-    @media (max-width: 1180px) {
-      .toolbar button {
-        padding: 0 7px;
-      }
-    }
-    @media (max-width: 760px) {
-      .toolbar-actions {
-        width: 100%;
-      }
-      .help-grid {
-        grid-template-columns: minmax(0, 1fr);
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <div class="toolbar">
-      <div class="toolbar-status" hidden>
-        <div class="title" id="title"></div>
-        <div class="loading" id="loading"></div>
-        <div class="error" id="error"></div>
-      </div>
-      <div class="toolbar-actions">
-        <button class="icon-button" id="checkoutBranch" title="Checkout selected branch (b)" aria-label="Checkout selected branch">${icon('git-branch', 'Checkout selected branch')}</button>
-        <button class="icon-button" id="branchActions" title="Show branch actions" aria-label="Show branch actions">${icon('git-branch', 'Show branch actions')}</button>
-        <button class="icon-button" id="copyHash" title="Copy selected commit hash (y)" aria-label="Copy selected commit hash">${icon('copy', 'Copy selected commit hash')}</button>
-        <button class="icon-button" id="commitActions" title="Show selected commit actions" aria-label="Show selected commit actions">${icon('ellipsis', 'Show selected commit actions')}</button>
-        <button class="icon-button" id="openFile" title="Open selected file at this revision (p)" aria-label="Open selected file at this revision">${icon('go-to-file', 'Open selected file at this revision')}</button>
-        <button class="icon-button" id="openWorkingFile" title="Open selected working tree file (w)" aria-label="Open selected working tree file">${icon('file', 'Open selected working tree file')}</button>
-        <button class="icon-button" id="openDiff" title="Open selected file diff (o)" aria-label="Open selected file diff">${icon('diff', 'Open selected file diff')}</button>
-        <button class="icon-button" id="toggleDiffPlacementToolbar" title="Dock diff preview on the right" aria-label="Dock diff preview on the right">${icon('layout-panel-right', 'Dock diff preview on the right')}</button>
-        <button class="icon-button" id="toggleDetailsToolbar" title="Show selection details" aria-label="Show selection details">${icon('inspect', 'Show selection details')}</button>
-        <button class="icon-button" id="stageChange" title="Stage selected local change" aria-label="Stage selected local change">${icon('add', 'Stage selected local change')}</button>
-        <button class="icon-button" id="unstageChange" title="Unstage selected local change" aria-label="Unstage selected local change">${icon('remove', 'Unstage selected local change')}</button>
-        <button class="icon-button" id="commitChanges" title="Commit staged changes" aria-label="Commit staged changes">${icon('git-commit', 'Commit staged changes')}</button>
-        <button class="icon-button" id="shelveChanges" title="Shelve local changes" aria-label="Shelve local changes">${icon('archive', 'Shelve local changes')}</button>
-        <button class="icon-button" id="unshelveChanges" title="Unshelve saved changes" aria-label="Unshelve saved changes">${icon('repo-pull', 'Unshelve saved changes')}</button>
-        <button class="icon-button" id="showHelp" title="Show keyboard shortcuts (F1)" aria-label="Show keyboard shortcuts">${icon('keyboard', 'Show keyboard shortcuts')}</button>
-        <button class="icon-button" id="resetLayout" title="Reset panel layout" aria-label="Reset panel layout">${icon('debug-restart', 'Reset panel layout')}</button>
-        <button class="icon-button" id="refresh" title="Refresh" aria-label="Refresh">${icon('refresh', 'Refresh')}</button>
-      </div>
-    </div>
-    <main class="layout diff-bottom">
-      <section class="pane" data-pane="branches">
-        <div class="pane-title branch-title">
-          <span>Branches</span>
-          <input id="branchSearch" type="search" aria-label="Search branches" placeholder="Search">
-          <button class="icon-button" data-branch-filter="all" title="Show all branches" aria-label="Show all branches">${icon('list-selection', 'Show all branches')}</button>
-          <button class="icon-button" data-branch-filter="local" title="Show local branches" aria-label="Show local branches">${icon('repo', 'Show local branches')}</button>
-          <button class="icon-button" data-branch-filter="remote" title="Show remote branches" aria-label="Show remote branches">${icon('cloud', 'Show remote branches')}</button>
-        </div>
-        <div class="list" id="branches" role="listbox" aria-label="Branches"></div>
-      </section>
-      <div class="pane-divider" data-divider="0" role="separator" aria-orientation="vertical" title="Resize panes"></div>
-      <section class="pane commit-pane" data-pane="commits">
-        <div class="pane-title commit-title">
-          <span>Commits</span>
-          <button class="icon-button" data-mode="log" title="Show selected branch log" aria-label="Show selected branch log">${icon('history', 'Show selected branch log')}</button>
-          <button class="icon-button" data-mode="outgoing" title="Show current branch commits not in selected branch" aria-label="Show outgoing commits">${icon('arrow-up', 'Show outgoing commits')}</button>
-          <button class="icon-button" data-mode="incoming" title="Show selected branch commits not in current branch" aria-label="Show incoming commits">${icon('arrow-down', 'Show incoming commits')}</button>
-          <button class="icon-button" data-mode="files" title="Show aggregate changed files between current and selected branch" aria-label="Show changed files">${icon('files', 'Show changed files')}</button>
-          <button class="icon-button" data-mode="changes" title="Show local working tree changes" aria-label="Show local working tree changes">${icon('repo', 'Show local working tree changes')}</button>
-          <span class="history-chip" id="historyChip" hidden>
-            <span class="history-chip-label" id="historyChipLabel"></span>
-            <button class="history-close icon-button" id="clearHistory" title="Return to branch log" aria-label="Return to branch log">${icon('close', 'Return to branch log')}</button>
-          </span>
-          <input id="commitSearch" type="search" aria-label="Search commits" placeholder="Search">
-        </div>
-        <div class="commit-summary" id="commitSummary" hidden></div>
-        <div class="grid" id="commits" role="grid" aria-label="Commits"></div>
-      </section>
-      <div class="pane-divider" data-divider="1" role="separator" aria-orientation="vertical" title="Resize panes"></div>
-      <section class="pane" data-pane="files">
-        <div class="pane-title file-title">
-          <span>Files</span>
-          <input id="fileSearch" type="search" aria-label="Search changed files" placeholder="Search">
-          <button class="icon-button" data-file-filter="all" title="Show all files" aria-label="Show all files">${icon('list-selection', 'Show all files')}</button>
-          <button class="icon-button" data-file-filter="A" title="Show added files" aria-label="Show added files">${icon('diff-added', 'Show added files')}</button>
-          <button class="icon-button" data-file-filter="M" title="Show modified files" aria-label="Show modified files">${icon('diff-modified', 'Show modified files')}</button>
-          <button class="icon-button" data-file-filter="D" title="Show deleted files" aria-label="Show deleted files">${icon('diff-removed', 'Show deleted files')}</button>
-          <button class="icon-button" data-file-filter="R" title="Show renamed files" aria-label="Show renamed files">${icon('diff-renamed', 'Show renamed files')}</button>
-        </div>
-        <div class="list" id="files" role="listbox" aria-label="Changed files"></div>
-      </section>
-      <div class="pane-divider" data-divider="2" role="separator" aria-orientation="vertical" title="Resize panes"></div>
-      <section class="pane diff-pane" data-pane="diff">
-        <div class="pane-title diff-title">
-          <span>Diff Preview</span>
-          <span class="diff-stats" id="diffStats"></span>
-          <button class="icon-button" id="toggleDiffPlacement" title="Move diff preview to the right" aria-label="Move diff preview to the right">${icon('layout-panel-right', 'Move diff preview to the right')}</button>
-          <button class="icon-button" id="toggleDetails" title="Show selection details" aria-label="Show selection details">${icon('inspect', 'Show selection details')}</button>
-          <button class="icon-button" id="toggleDiffView" title="Toggle side-by-side diff preview" aria-label="Toggle side-by-side diff preview">${icon('split-horizontal', 'Toggle side-by-side diff preview')}</button>
-          <button class="icon-button" id="prevFile" title="Previous file ([)" aria-label="Previous file">${icon('arrow-left', 'Previous file')}</button>
-          <button class="icon-button" id="nextFile" title="Next file (])" aria-label="Next file">${icon('arrow-right', 'Next file')}</button>
-          <button class="icon-button" id="prevHunk" title="Previous hunk (,)" aria-label="Previous hunk" disabled>${icon('arrow-up', 'Previous hunk')}</button>
-          <button class="icon-button" id="nextHunk" title="Next hunk (.)" aria-label="Next hunk" disabled>${icon('arrow-down', 'Next hunk')}</button>
-        </div>
-        <div class="diff-stack">
-          <div class="diff" id="diff" tabindex="-1"></div>
-          <div class="details" id="selectionDetails"></div>
-        </div>
-      </section>
-    </main>
-  </div>
-  <div class="context-menu" id="contextMenu" role="menu"></div>
-  <div class="help-overlay" id="helpOverlay" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
-    <div class="help-dialog">
-      <div class="help-header">
-        <span id="helpTitle">Keyboard Shortcuts</span>
-        <button class="icon-button" id="closeHelp" title="Close keyboard shortcuts" aria-label="Close keyboard shortcuts">${icon('close', 'Close keyboard shortcuts')}</button>
-      </div>
-      <div class="help-grid">
-        <div class="help-row"><span><span class="key">j</span> <span class="key">k</span></span><span>Move selection up or down</span></div>
-        <div class="help-row"><span><span class="key">h</span> <span class="key">l</span></span><span>Move between panes</span></div>
-        <div class="help-row"><span class="key">Enter</span><span>Activate selected row</span></div>
-        <div class="help-row"><span class="key">/</span><span>Search commits</span></div>
-        <div class="help-row"><span class="key">?</span><span>Search branches</span></div>
-        <div class="help-row"><span class="key">f</span><span>Search files</span></div>
-        <div class="help-row"><span class="key">o</span><span>Open native diff</span></div>
-        <div class="help-row"><span class="key">p</span><span>Open revision or worktree file</span></div>
-        <div class="help-row"><span class="key">w</span><span>Open working tree file</span></div>
-        <div class="help-row"><span class="key">y</span><span>Copy selected commit hash</span></div>
-        <div class="help-row"><span class="key">b</span><span>Checkout selected branch</span></div>
-        <div class="help-row"><span><span class="key">[</span> <span class="key">]</span></span><span>Previous or next file</span></div>
-        <div class="help-row"><span><span class="key">,</span> <span class="key">.</span></span><span>Previous or next hunk</span></div>
-        <div class="help-row"><span class="key">Esc</span><span>Clear search or close menus</span></div>
-      </div>
-    </div>
-  </div>
-  <script nonce="${nonce}">
+export const browserScript = String.raw`
     const vscode = acquireVsCodeApi();
     const persistedState = vscode.getState() || {};
     const layoutVersion = 3;
@@ -1164,8 +21,11 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
       selectedFile: persistedState.selectedFile || '',
       selectedCommitDetails: undefined,
       patch: '',
+      diffOriginal: undefined,
+      diffModified: undefined,
+      diffLoading: false,
       diffPlacement: persistedState.layoutVersion === layoutVersion && persistedState.diffPlacement === 'right' ? 'right' : 'bottom',
-      diffView: persistedState.diffView || 'unified',
+      diffView: normalizeDiffView(persistedState.diffView),
       detailsVisible: persistedState.detailsVisible === true,
       collapsedHunks: [],
       error: '',
@@ -1213,6 +73,10 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     let graphCommits = [];
     let graphRows = new Map();
     let suppressMouseResizeUntil = 0;
+    let monacoPromise = undefined;
+    let monacoDiffEditor = undefined;
+    let monacoModels = [];
+    let monacoDisposables = [];
 
     document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
     document.getElementById('checkoutBranch').addEventListener('click', checkoutSelectedBranch);
@@ -1234,7 +98,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     document.getElementById('resetLayout').addEventListener('click', () => vscode.postMessage({ type: 'resetLayout' }));
     document.getElementById('toggleDiffPlacement').addEventListener('click', toggleDiffPlacement);
     document.getElementById('toggleDetails').addEventListener('click', toggleDetails);
-    document.getElementById('toggleDiffView').addEventListener('click', toggleDiffView);
+    document.getElementById('toggleDiffView')?.addEventListener('click', toggleDiffView);
     document.getElementById('prevFile').addEventListener('click', () => navigateFile(-1));
     document.getElementById('nextFile').addEventListener('click', () => navigateFile(1));
     document.getElementById('prevHunk').addEventListener('click', () => navigateHunk(-1));
@@ -1246,7 +110,10 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     });
     document.addEventListener('click', hideContextMenu);
     document.addEventListener('scroll', hideContextMenu, true);
-    window.addEventListener('resize', scheduleCommitGraphOverlay);
+    window.addEventListener('resize', () => {
+      scheduleCommitGraphOverlay();
+      layoutSplitDiff();
+    });
     if (typeof ResizeObserver !== 'undefined') {
       const graphResizeObserver = new ResizeObserver(() => scheduleCommitGraphOverlay());
       graphResizeObserver.observe(commitsEl);
@@ -1334,7 +201,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
         state.compareBranch = '';
         state.historyFilePath = message.historyFilePath || state.historyFilePath || '';
         state.selectedCommitDetails = undefined;
-        state.patch = '';
+        clearDiffState(false);
         setFilesLoading(false);
         state.collapsedHunks = [];
         state.error = '';
@@ -1360,7 +227,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
         state.selectedCommit = restoredCommit;
         state.selectedFile = '';
         state.selectedCommitDetails = undefined;
-        state.patch = '';
+        clearDiffState(false);
         setFilesLoading(false);
         state.error = '';
         render();
@@ -1386,7 +253,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
           : '';
         state.selectedFile = restoredFile;
         state.selectedCommitDetails = undefined;
-        state.patch = '';
+        clearDiffState(!!restoredFile);
         setFilesLoading(false);
         state.currentHunkIndex = -1;
         state.collapsedHunks = [];
@@ -1409,7 +276,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
           : '';
         state.selectedFile = restoredFile;
         state.selectedCommitDetails = undefined;
-        state.patch = '';
+        clearDiffState(!!restoredFile);
         setFilesLoading(false);
         state.currentHunkIndex = -1;
         state.collapsedHunks = [];
@@ -1429,7 +296,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
         state.commits = message.commits || [];
         state.files = [];
         state.selectedCommitDetails = undefined;
-        state.patch = '';
+        clearDiffState(false);
         setFilesLoading(false);
         const restoredCommit = state.selectedCommit && state.commits.some((commit) => commit.hash === state.selectedCommit)
           ? state.selectedCommit
@@ -1456,7 +323,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
           ? state.selectedFile
           : '';
         state.selectedFile = restoredFile;
-        state.patch = '';
+        clearDiffState(!!restoredFile);
         state.currentHunkIndex = -1;
         state.collapsedHunks = [];
         state.error = '';
@@ -1473,6 +340,9 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
         }
         state.selectedFile = message.selectedFile || '';
         state.patch = message.patch || '';
+        state.diffOriginal = typeof message.original === 'string' ? message.original : undefined;
+        state.diffModified = typeof message.modified === 'string' ? message.modified : undefined;
+        state.diffLoading = false;
         state.currentHunkIndex = -1;
         state.collapsedHunks = [];
         state.error = '';
@@ -1548,10 +418,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
       updateDetailsButton(document.getElementById('toggleDetailsToolbar'));
       detailsEl.hidden = !state.detailsVisible;
       diffStackEl.classList.toggle('details-hidden', !state.detailsVisible);
-      const diffViewButton = document.getElementById('toggleDiffView');
-      setIconButton(diffViewButton, state.diffView === 'side' ? 'list-unordered' : 'split-horizontal', state.diffView === 'side' ? 'Unified diff preview' : 'Side-by-side diff preview');
-      diffViewButton.title = state.diffView === 'side' ? 'Show unified diff preview' : 'Show side-by-side diff preview';
-      diffViewButton.classList.toggle('active', state.diffView === 'side');
+      updateDiffViewButton(document.getElementById('toggleDiffView'));
       updateDiffNavigation();
       document.querySelectorAll('[data-branch-filter]').forEach((button) => {
         button.classList.toggle('active', button.dataset.branchFilter === state.branchFilter);
@@ -1585,6 +452,14 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
       button.classList.toggle('active', state.detailsVisible);
     }
 
+    function updateDiffViewButton(button) {
+      if (!button) return;
+      const split = state.diffView === 'side';
+      setIconButton(button, split ? 'list-unordered' : 'split-horizontal', split ? 'Combined diff preview' : 'Split diff preview');
+      button.title = split ? 'Show combined diff preview' : 'Show split diff preview';
+      button.classList.toggle('active', split);
+    }
+
     function setIconButton(button, iconName, label) {
       button.innerHTML = '<span class="codicon codicon-' + escapeHtml(iconName) + '" aria-hidden="true"></span>' +
         '<span class="sr-only">' + escapeHtml(label) + '</span>';
@@ -1616,7 +491,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
       if (state.mode === 'history' && state.historyFilePath) {
         lines.push('File history: ' + state.historyFilePath);
       }
-      return lines.join('\\n');
+      return lines.join('\n');
     }
 
     function renderActivePane() {
@@ -1729,7 +604,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
         const row = selectableRow('commit-row row' + (state.mode === 'history' ? '' : ' has-graph') + rowState('commits', selected), 'row', selected);
         applyCommitColumns(row);
         row.setAttribute('aria-rowindex', String(index + 2));
-        row.title = commit.hash + '\\n' + commit.author;
+        row.title = commit.hash + '\n' + commit.author;
         row.innerHTML = '<div class="hash" role="gridcell">' + escapeHtml(commit.shortHash) + '</div>' +
           '<div class="author" role="gridcell">' + escapeHtml(commit.author) + '</div>' +
           '<div class="date" role="gridcell">' + escapeHtml(formatDate(commit.date)) + '</div>' +
@@ -1774,7 +649,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
         const row = selectableRow('file-row row' + rowState('files', selected), 'option', selected);
         row.title = file.originalPath ? file.originalPath + ' -> ' + file.filePath : file.filePath;
         row.innerHTML = '<div class="file-icon ' + fileIconClass(file) + '" title="' + escapeHtml(fileTypeLabel(file)) + '">' + escapeHtml(fileIconLabel(file)) + '</div>' +
-          '<div><div class="primary">' + escapeHtml(file.filePath) + '</div>' +
+          '<div class="file-main"><div class="primary">' + escapeHtml(file.filePath) + '</div>' +
           '<div class="secondary">' + escapeHtml(fileSecondary(file)) + '</div></div>' +
           '<div class="status ' + statusClass(file) + '" title="' + escapeHtml(fileStatusLabel(file)) + '">' + escapeHtml(fileStatusDisplay(file)) + '</div>';
         row.addEventListener('focus', () => setActivePane('files', false));
@@ -1791,27 +666,384 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
       }));
     }
 
+    function clearDiffState(loading) {
+      state.patch = '';
+      state.diffOriginal = undefined;
+      state.diffModified = undefined;
+      state.diffLoading = loading === true;
+    }
+
     function renderDiff() {
-      if (!state.patch) {
-        diffEl.innerHTML = '<div class="empty">Select a commit file to preview its diff.</div>';
+      if (!state.patch && !hasDiffContent()) {
+        disposeMonacoDiff();
+        diffEl.classList.remove('diff-split-mode', 'monaco-diff-mode');
+        diffEl.innerHTML = '<div class="empty">' + escapeHtml(emptyDiffMessage()) + '</div>';
         diffStatsEl.textContent = '';
         updateDiffNavigation();
         return;
       }
-      const parsed = parsePatch(state.patch);
+      const parsed = state.patch ? parsePatch(state.patch) : { meta: [], hunks: [] };
       const stats = patchStats(parsed);
+      if (parsed.hunks.length === 0 && !hasDiffContent()) {
+        disposeMonacoDiff();
+        diffEl.classList.remove('diff-split-mode', 'monaco-diff-mode');
+        diffEl.innerHTML = '<div class="empty">' + escapeHtml(emptyDiffMessage()) + '</div>';
+        updateDiffNavigation();
+        return;
+      }
+      diffEl.classList.toggle('diff-split-mode', state.diffView === 'side');
+      diffEl.classList.toggle('monaco-diff-mode', state.diffView === 'side');
+      if (state.diffView === 'side') {
+        diffStatsEl.textContent = '';
+        renderMonacoDiff(parsed);
+        updateDiffNavigation();
+        return;
+      }
       diffStatsEl.textContent = '+' + stats.added + ' -' + stats.deleted;
-      diffEl.innerHTML = state.diffView === 'side' ? renderSideBySideDiff(parsed) : renderUnifiedDiff(parsed);
+      disposeMonacoDiff();
+      diffEl.innerHTML = renderUnifiedDiff(parsed);
       diffEl.querySelectorAll('[data-hunk-index]').forEach((item) => {
         item.addEventListener('click', () => toggleCollapsedHunk(Number(item.getAttribute('data-hunk-index'))));
       });
+      layoutSplitDiff();
+      setupSplitDiffScrolling();
       highlightCurrentHunk(false);
+    }
+
+    function emptyDiffMessage() {
+      if (state.diffLoading) return 'Loading diff...';
+      if (selectedFile()) return 'No textual diff available for this file.';
+      return 'Select a commit file to preview its diff.';
+    }
+
+    function hasDiffContent() {
+      return typeof state.diffOriginal === 'string' && typeof state.diffModified === 'string' &&
+        (state.diffOriginal.length > 0 || state.diffModified.length > 0);
+    }
+
+    function renderMonacoDiff(parsed) {
+      const patch = state.patch;
+      const file = selectedFile();
+      diffEl.innerHTML = '<div class="monaco-diff" id="monacoDiff"></div>';
+      loadMonaco().then((monaco) => {
+        if (state.patch !== patch || state.diffView !== 'side') {
+          return;
+        }
+        const container = document.getElementById('monacoDiff');
+        if (!container) {
+          return;
+        }
+        disposeMonacoDiff();
+        configureMonacoTheme(monaco);
+        const texts = diffModelTexts(parsed);
+        const language = monacoLanguage(file?.filePath || '');
+        const modelId = Date.now() + '-' + Math.random().toString(16).slice(2);
+        const original = monaco.editor.createModel(texts.original, language, monaco.Uri.parse('inmemory://abstractive-scm/original-' + modelId + fileExtension(file?.filePath || '')));
+        const modified = monaco.editor.createModel(texts.modified, language, monaco.Uri.parse('inmemory://abstractive-scm/modified-' + modelId + fileExtension(file?.filePath || '')));
+        monacoModels = [original, modified];
+        monacoDiffEditor = monaco.editor.createDiffEditor(container, {
+          automaticLayout: true,
+          readOnly: true,
+          originalEditable: false,
+          renderSideBySide: true,
+          useInlineViewWhenSpaceIsLimited: false,
+          compactMode: true,
+          renderOverviewRuler: false,
+          overviewRulerLanes: 0,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          folding: false,
+          glyphMargin: false,
+          lineDecorationsWidth: 0,
+          lineNumbers: 'off',
+          lineNumbersMinChars: 0,
+          renderLineHighlight: 'none',
+          padding: { top: 0, bottom: 0 },
+          guides: {
+            indentation: false,
+            bracketPairs: false
+          },
+          fontFamily: editorFontFamily(),
+          fontSize: editorFontSize(),
+          lineHeight: editorLineHeight(),
+          wordWrap: 'on',
+          diffWordWrap: 'on',
+          hideUnchangedRegions: {
+            enabled: true,
+            revealLineCount: 4,
+            minimumLineCount: 8,
+            contextLineCount: 3
+          },
+          scrollbar: {
+            alwaysConsumeMouseWheel: false,
+            horizontal: 'hidden',
+            vertical: 'auto'
+          }
+        });
+        monacoDiffEditor.setModel({ original, modified });
+        monacoDiffEditor.layout();
+        monacoDisposables = [
+          monacoDiffEditor.onDidUpdateDiff(() => updateMonacoDiffState(monacoDiffEditor))
+        ];
+        updateMonacoDiffState(monacoDiffEditor);
+      }).catch(() => {
+        if (state.patch !== patch || state.diffView !== 'side') {
+          return;
+        }
+        diffEl.classList.remove('monaco-diff-mode');
+        diffEl.innerHTML = renderSideBySideDiff(parsed);
+        diffEl.querySelectorAll('[data-hunk-index]').forEach((item) => {
+          item.addEventListener('click', () => toggleCollapsedHunk(Number(item.getAttribute('data-hunk-index'))));
+        });
+        layoutSplitDiff();
+        setupSplitDiffScrolling();
+        highlightCurrentHunk(false);
+      });
+    }
+
+    function loadMonaco() {
+      if (window.monaco) {
+        configureMonacoWorkers();
+        return Promise.resolve(window.monaco);
+      }
+      if (monacoPromise) {
+        return monacoPromise;
+      }
+      monacoPromise = new Promise((resolve, reject) => {
+        const loader = window.__ABSTRACTIVE_MONACO_LOADER__;
+        const base = window.__ABSTRACTIVE_MONACO_BASE__;
+        if (!loader || !base) {
+          reject(new Error('Monaco assets are unavailable.'));
+          return;
+        }
+        configureMonacoWorkers();
+        const script = document.createElement('script');
+        script.src = loader;
+        script.onload = () => {
+          try {
+            window.require.config({ paths: { vs: base } });
+            window.require(['vs/editor/editor.main'], () => {
+              configureMonacoWorkers();
+              resolve(window.monaco);
+            });
+          } catch (error) {
+            reject(error);
+          }
+        };
+        script.onerror = () => reject(new Error('Failed to load Monaco.'));
+        document.head.appendChild(script);
+      });
+      return monacoPromise;
+    }
+
+    function configureMonacoWorkers() {
+      window.MonacoEnvironment = {
+        ...(window.MonacoEnvironment || {}),
+        getWorker: (_workerId, label) => loadMonacoWorker(label)
+      };
+    }
+
+    function loadMonacoWorker(label) {
+      const workers = window.__ABSTRACTIVE_MONACO_WORKERS__ || {};
+      const workerUri = workers[label] || workers.editorWorkerService || workers.editor;
+      if (!workerUri) {
+        throw new Error('Monaco worker assets are unavailable.');
+      }
+      return fetch(workerUri)
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error('Failed to load Monaco worker ' + label + ': ' + response.status);
+          }
+          return response.text();
+        })
+        .then((source) => {
+          const blob = new Blob([source], { type: 'text/javascript' });
+          return new Worker(URL.createObjectURL(blob), { name: label || 'monaco-worker' });
+        });
+    }
+
+    function disposeMonacoDiff() {
+      monacoDisposables.forEach((disposable) => disposable.dispose());
+      monacoDisposables = [];
+      if (monacoDiffEditor) {
+        monacoDiffEditor.dispose();
+        monacoDiffEditor = undefined;
+      }
+      monacoModels.forEach((model) => model.dispose());
+      monacoModels = [];
+    }
+
+    function updateMonacoDiffState(editor) {
+      if (monacoDiffEditor !== editor) {
+        return;
+      }
+      const changes = typeof editor.getLineChanges === 'function' ? editor.getLineChanges() : undefined;
+      if (!changes) {
+        return;
+      }
+      const stats = monacoDiffStats(changes);
+      diffStatsEl.textContent = '+' + stats.added + ' -' + stats.deleted;
+      revealFirstMonacoChange(editor, changes);
+    }
+
+    function monacoDiffStats(changes) {
+      return changes.reduce((stats, change) => {
+        stats.deleted += lineSpan(change.originalStartLineNumber, change.originalEndLineNumber);
+        stats.added += lineSpan(change.modifiedStartLineNumber, change.modifiedEndLineNumber);
+        return stats;
+      }, { added: 0, deleted: 0 });
+    }
+
+    function lineSpan(start, end) {
+      if (!start || !end) {
+        return 0;
+      }
+      return Math.max(0, end - start + 1);
+    }
+
+    function revealFirstMonacoChange(editor, changes) {
+      const first = changes[0];
+      if (!first || editor.__abstractiveRevealedFirstChange) {
+        return;
+      }
+      editor.__abstractiveRevealedFirstChange = true;
+      const originalLine = first.originalStartLineNumber || first.originalEndLineNumber || 1;
+      const modifiedLine = first.modifiedStartLineNumber || first.modifiedEndLineNumber || 1;
+      editor.getOriginalEditor().revealLineInCenterIfOutsideViewport(originalLine);
+      editor.getModifiedEditor().revealLineInCenterIfOutsideViewport(modifiedLine);
+      if (typeof editor.goToDiff === 'function') {
+        editor.goToDiff('next');
+      }
+    }
+
+    function diffModelTexts(parsed) {
+      if (typeof state.diffOriginal === 'string' && typeof state.diffModified === 'string') {
+        return {
+          original: state.diffOriginal,
+          modified: state.diffModified
+        };
+      }
+      return patchTexts(parsed);
+    }
+
+    function editorFontFamily() {
+      return cssVariable('--vscode-editor-font-family', 'monospace');
+    }
+
+    function editorFontSize() {
+      return cssNumber('--vscode-editor-font-size', 12);
+    }
+
+    function editorLineHeight() {
+      return Math.round(editorFontSize() * 1.45);
+    }
+
+    function cssVariable(name, fallback) {
+      const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      return value || fallback;
+    }
+
+    function cssNumber(name, fallback) {
+      const value = Number.parseFloat(cssVariable(name, String(fallback)));
+      return Number.isFinite(value) && value > 0 ? value : fallback;
+    }
+
+    function configureMonacoTheme(monaco) {
+      const styles = getComputedStyle(document.documentElement);
+      const background = themeColor(styles, '--vscode-editor-background', '#1e1e1e');
+      const foreground = themeColor(styles, '--vscode-editor-foreground', '#d4d4d4');
+      const lineNumber = themeColor(styles, '--vscode-editorLineNumber-foreground', '#858585');
+      const selection = themeColor(styles, '--vscode-editor-selectionBackground', '#264f78');
+      monaco.editor.defineTheme('abstractive-scm', {
+        base: isLightColor(background) ? 'vs' : 'vs-dark',
+        inherit: true,
+        rules: [],
+        colors: {
+          'editor.background': background,
+          'editor.foreground': foreground,
+          'editorGutter.background': background,
+          'editorLineNumber.foreground': lineNumber,
+          'editor.selectionBackground': selection,
+          'diffEditor.insertedTextBackground': alphaHex(themeColor(styles, '--vscode-diffEditor-insertedTextBackground', '#587c0c'), '36'),
+          'diffEditor.removedTextBackground': alphaHex(themeColor(styles, '--vscode-diffEditor-removedTextBackground', '#f14c4c'), '30'),
+          'diffEditor.insertedLineBackground': alphaHex(themeColor(styles, '--vscode-diffEditor-insertedLineBackground', '#587c0c'), '22'),
+          'diffEditor.removedLineBackground': alphaHex(themeColor(styles, '--vscode-diffEditor-removedLineBackground', '#f14c4c'), '22')
+        }
+      });
+      monaco.editor.setTheme('abstractive-scm');
+    }
+
+    function themeColor(styles, name, fallback) {
+      const value = styles.getPropertyValue(name).trim();
+      return /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(value) ? value : fallback;
+    }
+
+    function alphaHex(color, alpha) {
+      return color.length === 7 ? color + alpha : color;
+    }
+
+    function isLightColor(color) {
+      const hex = color.replace('#', '').slice(0, 6);
+      const red = parseInt(hex.slice(0, 2), 16);
+      const green = parseInt(hex.slice(2, 4), 16);
+      const blue = parseInt(hex.slice(4, 6), 16);
+      return (red * 299 + green * 587 + blue * 114) / 1000 > 160;
+    }
+
+    function patchTexts(parsed) {
+      const original = [];
+      const modified = [];
+      parsed.hunks.forEach((hunk, index) => {
+        if (index > 0) {
+          original.push('');
+          modified.push('');
+        }
+        hunk.lines.forEach((line) => {
+          if (isDeletedLine(line)) {
+            original.push(line.slice(1));
+          } else if (isAddedLine(line)) {
+            modified.push(line.slice(1));
+          } else if (!isMetaLine(line)) {
+            const text = line.startsWith(' ') ? line.slice(1) : line;
+            original.push(text);
+            modified.push(text);
+          }
+        });
+      });
+      return {
+        original: original.join('\n'),
+        modified: modified.join('\n')
+      };
+    }
+
+    function monacoLanguage(filePath) {
+      const extension = fileExtension(filePath).slice(1).toLowerCase();
+      const languages = {
+        css: 'css',
+        html: 'html',
+        js: 'javascript',
+        jsx: 'javascript',
+        json: 'json',
+        md: 'markdown',
+        ts: 'typescript',
+        tsx: 'typescript',
+        xml: 'xml',
+        yaml: 'yaml',
+        yml: 'yaml'
+      };
+      return languages[extension] || 'plaintext';
+    }
+
+    function fileExtension(filePath) {
+      const name = String(filePath || '');
+      const index = name.lastIndexOf('.');
+      return index >= 0 ? name.slice(index) : '.txt';
     }
 
     function parsePatch(patch) {
       const parsed = { meta: [], hunks: [] };
       let current = undefined;
-      patch.split('\\n').forEach((line) => {
+      patch.split('\n').forEach((line) => {
         if (line.startsWith('@@')) {
           current = { header: line, lines: [], index: parsed.hunks.length };
           parsed.hunks.push(current);
@@ -1866,49 +1098,108 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     }
 
     function renderSideBySideDiff(parsed) {
-      const rows = parsed.meta
+      const leftRows = [];
+      const rightRows = [];
+      parsed.meta
         .filter((line) => line)
-        .map((line) => '<div class="diff-side-row meta">' + diffLine(line, 'line meta') + '</div>');
+        .forEach((line) => {
+          const row = splitMetaRow(line);
+          leftRows.push(row);
+          rightRows.push(row);
+        });
       parsed.hunks.forEach((hunk) => {
-        rows.push('<div class="diff-side-row hunk">' + hunkHeader(hunk, 'line hunk') + '</div>');
+        const header = splitHunkHeader(hunk);
+        leftRows.push(header);
+        rightRows.push(header);
         if (!hunkCollapsed(hunk.index)) {
-          rows.push(...sideRows(hunk.lines));
+          sideRows(hunk).forEach((row) => {
+            leftRows.push(splitLineRow(row.left));
+            rightRows.push(splitLineRow(row.right));
+          });
         }
       });
-      return '<div class="diff-side">' + rows.join('') + '</div>';
+      return '<div class="diff-side">' +
+        '<div class="diff-column"><div class="diff-column-scroll" data-diff-side="left">' + leftRows.join('') + '</div></div>' +
+        '<div class="diff-column"><div class="diff-column-scroll" data-diff-side="right">' + rightRows.join('') + '</div></div>' +
+        '</div>';
     }
 
-    function sideRows(lines) {
+    function sideRows(hunk) {
       const rows = [];
       let deletes = [];
       let adds = [];
+      const position = hunkStartPositions(hunk.header);
+      let oldLine = position.oldStart;
+      let newLine = position.newStart;
       const flush = () => {
         const count = Math.max(deletes.length, adds.length);
         for (let index = 0; index < count; index += 1) {
-          rows.push(sideRow(deletes[index], adds[index]));
+          const left = deletes[index];
+          const right = adds[index];
+          rows.push({
+            left: left ? splitLineModel(left, oldLine++, 'del', right) : emptySplitLine(),
+            right: right ? splitLineModel(right, newLine++, 'add', left) : emptySplitLine()
+          });
         }
         deletes = [];
         adds = [];
       };
-      lines.forEach((line) => {
+      hunk.lines.forEach((line) => {
         if (isDeletedLine(line)) deletes.push(line);
         else if (isAddedLine(line)) adds.push(line);
         else {
           flush();
-          rows.push(sideRow(line, line));
+          const className = isMetaLine(line) ? 'meta' : 'context';
+          rows.push({
+            left: splitLineModel(line, oldLine++, className),
+            right: splitLineModel(line, newLine++, className)
+          });
         }
       });
       flush();
       return rows;
     }
 
-    function sideRow(left, right) {
-      const leftClass = left && isDeletedLine(left) ? ' del' : '';
-      const rightClass = right && isAddedLine(right) ? ' add' : '';
-      return '<div class="diff-side-row">' +
-        '<span class="diff-cell' + leftClass + '">' + sideCell(left, right) + '</span>' +
-        '<span class="diff-cell' + rightClass + '">' + sideCell(right, left) + '</span>' +
+    function splitLineModel(line, lineNumber, className, counterpart) {
+      return {
+        className,
+        lineNumber,
+        content: sideCell(line, counterpart)
+      };
+    }
+
+    function emptySplitLine() {
+      return { className: 'empty-side', lineNumber: '', content: ' ' };
+    }
+
+    function splitLineRow(line) {
+      return '<div class="diff-side-line ' + escapeHtml(line.className) + '">' +
+        '<span class="diff-line-number">' + escapeHtml(line.lineNumber) + '</span>' +
+        '<span class="diff-line-code">' + line.content + '</span>' +
         '</div>';
+    }
+
+    function splitMetaRow(line) {
+      return '<div class="diff-side-line meta">' +
+        '<span class="diff-line-number"></span>' +
+        '<span class="diff-line-code">' + escapeHtml(line) + '</span>' +
+        '</div>';
+    }
+
+    function splitHunkHeader(hunk) {
+      const prefix = hunkCollapsed(hunk.index) ? '[+] ' : '[-] ';
+      return '<div class="diff-side-line hunk line" data-hunk-index="' + hunk.index + '" tabindex="-1">' +
+        '<span class="diff-line-number"></span>' +
+        '<span class="diff-line-code">' + escapeHtml(prefix + hunk.header) + '</span>' +
+        '</div>';
+    }
+
+    function hunkStartPositions(header) {
+      const match = /^@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@/.exec(header);
+      return {
+        oldStart: Number(match?.[1] ?? 1),
+        newStart: Number(match?.[2] ?? 1)
+      };
     }
 
     function sideCell(line, counterpart) {
@@ -1940,10 +1231,15 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
       if (!compareValue || value === compareValue) {
         return escapeHtml(value);
       }
-      let start = 0;
-      while (start < value.length && start < compareValue.length && value[start] === compareValue[start]) {
-        start += 1;
+      const tokens = diffTokens(value, compareValue);
+      if (tokens) {
+        return tokens.map((token) => token.changed
+          ? '<span class="word-change">' + escapeHtml(token.value || ' ') + '</span>'
+          : escapeHtml(token.value)
+        ).join('');
       }
+      let start = 0;
+      while (start < value.length && start < compareValue.length && value[start] === compareValue[start]) start += 1;
       let end = value.length;
       let compareEnd = compareValue.length;
       while (end > start && compareEnd > start && value[end - 1] === compareValue[compareEnd - 1]) {
@@ -1953,6 +1249,70 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
       return escapeHtml(value.slice(0, start)) +
         '<span class="word-change">' + escapeHtml(value.slice(start, end) || ' ') + '</span>' +
         escapeHtml(value.slice(end));
+    }
+
+    function diffTokens(value, compareValue) {
+      const tokens = tokenizeForDiff(value);
+      const compareTokens = tokenizeForDiff(compareValue);
+      if (!tokens.length || tokens.length > 120 || compareTokens.length > 120) {
+        return undefined;
+      }
+      const table = Array.from({ length: tokens.length + 1 }, () => Array(compareTokens.length + 1).fill(0));
+      for (let left = tokens.length - 1; left >= 0; left -= 1) {
+        for (let right = compareTokens.length - 1; right >= 0; right -= 1) {
+          table[left][right] = tokens[left] === compareTokens[right]
+            ? table[left + 1][right + 1] + 1
+            : Math.max(table[left + 1][right], table[left][right + 1]);
+        }
+      }
+      const result = [];
+      let left = 0;
+      let right = 0;
+      while (left < tokens.length) {
+        if (right < compareTokens.length && tokens[left] === compareTokens[right]) {
+          result.push({ value: tokens[left], changed: false });
+          left += 1;
+          right += 1;
+        } else if (right < compareTokens.length && table[left][right + 1] >= table[left + 1]?.[right]) {
+          right += 1;
+        } else {
+          result.push({ value: tokens[left], changed: true });
+          left += 1;
+        }
+      }
+      return result;
+    }
+
+    function tokenizeForDiff(value) {
+      return String(value).match(/\w+|\s+|[^\w\s]+/g) || [];
+    }
+
+    function setupSplitDiffScrolling() {
+      const scrollers = Array.from(diffEl.querySelectorAll('.diff-column-scroll'));
+      if (scrollers.length !== 2) return;
+      let syncing = false;
+      scrollers.forEach((source) => {
+        source.addEventListener('scroll', () => {
+          if (syncing) return;
+          syncing = true;
+          scrollers.forEach((target) => {
+            if (target !== source) {
+              target.scrollTop = source.scrollTop;
+            }
+          });
+          requestAnimationFrame(() => {
+            syncing = false;
+          });
+        });
+      });
+    }
+
+    function layoutSplitDiff() {
+      if (state.diffView !== 'side') return;
+      const width = Math.max(0, diffEl.clientWidth);
+      if (!width) return;
+      const columnWidth = Math.floor(width / 2);
+      diffEl.style.setProperty('--diff-column-width', columnWidth + 'px');
     }
 
     function toggleCollapsedHunk(index) {
@@ -2055,7 +1415,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
 
     function shortParents(value) {
       return String(value || '')
-        .split(/\\s+/)
+        .split(/\s+/)
         .filter(Boolean)
         .map((hash) => hash.slice(0, 12))
         .join(' ');
@@ -2075,9 +1435,9 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     function commitBody(commit) {
       const body = String(commit.body || '').trim();
       if (!body) return '';
-      const lines = body.split(/\\r?\\n/);
+      const lines = body.split(/\r?\n/);
       if (lines[0] === commit.subject) {
-        return lines.slice(1).join('\\n').trim();
+        return lines.slice(1).join('\n').trim();
       }
       return body;
     }
@@ -2292,14 +1652,14 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     }
 
     function paneColumnsTemplate() {
-      return state.paneColumns.map((width) => Math.round(width) + 'px').join(' 4px ');
+      return state.paneColumns.map((width) => Math.round(width) + 'px').join(' var(--scm-pane-divider-size) ');
     }
 
     function mainPaneColumnsTemplate() {
       const branchWidth = Math.round(state.paneColumns[0]);
       const commitWidth = Math.round(state.paneColumns[1]);
       const filesWidth = Math.round(state.paneColumns[2]);
-      return branchWidth + 'px 4px minmax(' + commitWidth + 'px, 1fr) 4px ' + filesWidth + 'px';
+      return branchWidth + 'px var(--scm-pane-divider-size) minmax(' + commitWidth + 'px, 1fr) var(--scm-pane-divider-size) ' + filesWidth + 'px';
     }
 
     function clampedDiffPaneHeight(height) {
@@ -2657,7 +2017,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
       state.selectedCommitDetails = undefined;
       state.selectedFile = '';
       setFilesLoading(true, hash);
-      state.patch = '';
+      clearDiffState(false);
       saveLayoutState();
       renderCommitSummary();
       renderFiles();
@@ -2669,7 +2029,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     function selectFile(file) {
       setActivePane('files', false);
       state.selectedFile = fileKey(file);
-      state.patch = '';
+      clearDiffState(true);
       saveLayoutState();
       renderFiles();
       renderDiff();
@@ -2786,6 +2146,10 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
       saveLayoutState();
       renderChrome();
       renderDiff();
+    }
+
+    function normalizeDiffView(value) {
+      return value === 'side' ? 'side' : 'unified';
     }
 
     function showSelectedBranchActions() {
@@ -2935,12 +2299,20 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     }
 
     function hunkElements() {
-      return Array.from(diffEl.querySelectorAll('.line.hunk'));
+      const seen = new Set();
+      return Array.from(diffEl.querySelectorAll('[data-hunk-index]')).filter((item) => {
+        const index = item.getAttribute('data-hunk-index');
+        if (seen.has(index)) {
+          return false;
+        }
+        seen.add(index);
+        return true;
+      });
     }
 
     function highlightCurrentHunk(scroll) {
+      diffEl.querySelectorAll('[data-hunk-index]').forEach((item) => item.classList.remove('current-hunk'));
       const hunks = hunkElements();
-      hunks.forEach((item) => item.classList.remove('current-hunk'));
       if (!hunks.length) {
         state.currentHunkIndex = -1;
         updateDiffNavigation();
@@ -2949,7 +2321,7 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
 
       state.currentHunkIndex = Math.max(0, Math.min(hunks.length - 1, state.currentHunkIndex));
       const hunk = hunks[state.currentHunkIndex];
-      hunk.classList.add('current-hunk');
+      diffEl.querySelectorAll('[data-hunk-index="' + hunk.getAttribute('data-hunk-index') + '"]').forEach((item) => item.classList.add('current-hunk'));
       if (scroll) {
         hunk.scrollIntoView({ block: 'center' });
       }
@@ -3454,16 +2826,4 @@ export function renderHtml(webview: vscode.Webview, extensionUri: vscode.Uri): s
     }
 
     vscode.postMessage({ type: 'ready' });
-  </script>
-</body>
-</html>`;
-}
-
-function getNonce(): string {
-  let text = '';
-  const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  for (let i = 0; i < 32; i += 1) {
-    text += possible.charAt(Math.floor(Math.random() * possible.length));
-  }
-  return text;
-}
+`;
