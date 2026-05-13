@@ -10,7 +10,11 @@ interface ChangelistState {
 }
 
 export class ChangelistManager {
-  constructor(private readonly memento: vscode.Memento) {}
+  private readonly key: string;
+
+  constructor(private readonly memento: vscode.Memento, scope?: string) {
+    this.key = scope ? `${storageKey}.${encodeURIComponent(scope)}` : storageKey;
+  }
 
   get names(): string[] {
     return this.read().names;
@@ -86,7 +90,7 @@ export class ChangelistManager {
   }
 
   private read(): ChangelistState {
-    const stored = this.memento.get<ChangelistState>(storageKey);
+    const stored = this.memento.get<ChangelistState>(this.key);
     const names = Array.from(new Set([defaultChangelistName, ...(stored?.names ?? [])]));
     return {
       names,
@@ -98,6 +102,6 @@ export class ChangelistManager {
   private async write(state: ChangelistState): Promise<void> {
     const names = Array.from(new Set([defaultChangelistName, ...state.names.filter(Boolean)]));
     const userCreated = Array.from(new Set(state.userCreated.filter((name) => name && name !== defaultChangelistName)));
-    await this.memento.update(storageKey, { names, assignments: state.assignments, userCreated });
+    await this.memento.update(this.key, { names, assignments: state.assignments, userCreated });
   }
 }

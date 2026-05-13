@@ -6,7 +6,7 @@ export class StashesProvider implements vscode.TreeDataProvider<StashNode> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<StashNode | undefined>();
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
-  constructor(private readonly git: GitService) {}
+  constructor(private readonly git: () => GitService) {}
 
   refresh(): void {
     this.onDidChangeTreeDataEmitter.fire(undefined);
@@ -17,18 +17,21 @@ export class StashesProvider implements vscode.TreeDataProvider<StashNode> {
   }
 
   async getChildren(): Promise<StashNode[]> {
-    const stashes = await this.git.stashes();
-    return stashes.map((stash) => new StashNode(stash));
+    const git = this.git();
+    const stashes = await git.stashes();
+    return stashes.map((stash) => new StashNode(git, { ...stash, repoRoot: git.root }));
   }
 }
 
 export class StashNode extends vscode.TreeItem {
-  constructor(readonly stash: GitStash) {
+  readonly repoRoot: string;
+
+  constructor(readonly repository: GitService, readonly stash: GitStash) {
     super(stash.message || stash.ref, vscode.TreeItemCollapsibleState.None);
+    this.repoRoot = repository.root;
     this.description = `${stash.ref} ${stash.age}`.trim();
     this.tooltip = `${stash.ref}\n${stash.shortHash}\n${stash.message}`;
     this.contextValue = 'stash';
     this.iconPath = new vscode.ThemeIcon('archive');
   }
 }
-

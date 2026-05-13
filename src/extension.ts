@@ -1,18 +1,19 @@
 import * as vscode from 'vscode';
 import { AbstractiveScmController } from './activation/AbstractiveScmController';
-import { registerNoRepositoryCommands } from './activation/commandRegistry';
-import { GitService } from './git';
+import { registerNoRepositoryCommands, registerNoRepositoryViews } from './activation/commandRegistry';
+import { RepositoryManager } from './git';
 
 let controller: AbstractiveScmController | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const git = await GitService.discover();
-  if (!git) {
+  const repositories = await RepositoryManager.create();
+  if (!repositories) {
     registerNoRepositoryCommands(context);
+    registerNoRepositoryViews(context);
     return;
   }
 
-  controller = new AbstractiveScmController(context, git);
+  controller = new AbstractiveScmController(context, repositories);
   context.subscriptions.push(controller);
   await controller.refresh();
 }

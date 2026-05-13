@@ -7,6 +7,9 @@ import { StashNode } from '../stashesView';
 
 export interface RepositoryCommandController {
   refresh(): Promise<void>;
+  refreshAll(): Promise<void>;
+  fetchAll(): Promise<void>;
+  switchRepository(): Promise<void>;
   toggleTreeView(): Promise<void>;
   stage(arg?: ChangeItemNode | GitResourceState): Promise<void>;
   stageGroup(arg?: ChangeGroupNode): Promise<void>;
@@ -47,6 +50,9 @@ export function registerRepositoryCommands(controller: RepositoryCommandControll
     ...registerCommitCommands(controller),
     ...registerChangelistCommands(controller),
     vscode.commands.registerCommand('abstractiveScm.refresh', () => controller.refresh()),
+    vscode.commands.registerCommand('abstractiveScm.refreshAll', () => controller.refreshAll()),
+    vscode.commands.registerCommand('abstractiveScm.fetchAll', () => controller.fetchAll()),
+    vscode.commands.registerCommand('abstractiveScm.switchRepository', () => controller.switchRepository()),
     vscode.commands.registerCommand('abstractiveScm.toggleTreeView', () => controller.toggleTreeView()),
     vscode.commands.registerCommand('abstractiveScm.openToolWindow', () => controller.openToolWindow()),
     vscode.commands.registerCommand('abstractiveScm.showFileHistory', (arg?: ChangeItemNode | GitResourceState | vscode.Uri) => controller.showFileHistory(arg))

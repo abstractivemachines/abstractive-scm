@@ -94,6 +94,25 @@ describe('SCM panel webview source layout', () => {
     assert.match(browserScript, /class="file-main"/);
   });
 
+  it('orders remote branches after locals without changing branch selection values', () => {
+    const browserScript = readFileSync('src/webviews/scmPanel/browserScript.ts', 'utf8');
+
+    assert.match(browserScript, /const localBranches = branches\.filter\(\(branch\) => !branch\.remote\)/);
+    assert.match(browserScript, /const remoteBranches = branches\.filter\(\(branch\) => branch\.remote\)/);
+    assert.match(browserScript, /\.\.\.localBranches\.map\(renderBranchRow\),\n\s+\.\.\.remoteBranches\.map\(renderBranchRow\)/);
+    assert.match(browserScript, /function renderBranchRow\(branch\)/);
+    assert.match(browserScript, /selectBranch\(branch\.name\)/);
+    assert.doesNotMatch(browserScript, /branchGroupHeader/);
+  });
+
+  it('updates branch filter button active states without a full data refresh', () => {
+    const browserScript = readFileSync('src/webviews/scmPanel/browserScript.ts', 'utf8');
+
+    assert.match(browserScript, /function updateHeaderButtonStates\(\)/);
+    assert.match(browserScript, /renderBranches\(\);\n\s+updateHeaderButtonStates\(\);\n\s+focusSelected\(\);/);
+    assert.match(browserScript, /button\.classList\.toggle\('active', button\.dataset\.branchFilter === state\.branchFilter\)/);
+  });
+
   it('keeps pane dividers visually narrow while preserving resize targets', () => {
     const styles = readFileSync('src/webviews/scmPanel/styles.ts', 'utf8');
     const browserScript = readFileSync('src/webviews/scmPanel/browserScript.ts', 'utf8');

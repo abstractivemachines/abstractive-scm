@@ -6,7 +6,7 @@ export class BranchesProvider implements vscode.TreeDataProvider<BranchNode> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<BranchNode | undefined>();
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
-  constructor(private readonly git: GitService, private treeView: boolean) {}
+  constructor(private readonly git: () => GitService, private treeView: boolean) {}
 
   refresh(): void {
     this.onDidChangeTreeDataEmitter.fire(undefined);
@@ -22,7 +22,8 @@ export class BranchesProvider implements vscode.TreeDataProvider<BranchNode> {
   }
 
   async getChildren(element?: BranchNode): Promise<BranchNode[]> {
-    const branches = await this.git.branches();
+    const git = this.git();
+    const branches = (await git.branches()).map((branch) => ({ ...branch, repoRoot: git.root }));
 
     if (!element) {
       return [
@@ -33,12 +34,12 @@ export class BranchesProvider implements vscode.TreeDataProvider<BranchNode> {
 
     if (element instanceof BranchGroupNode) {
       return this.treeView
-        ? branchFolderChildren(element.branches, [])
-        : element.branches.map((branch) => new BranchItemNode(branch));
+        ? branchFolderChildren(git, element.branches, [])
+        : element.branches.map((branch) => new BranchItemNode(git, branch));
     }
 
     if (element instanceof BranchFolderNode) {
-      return branchFolderChildren(element.branches, element.parts);
+      return branchFolderChildren(this.git(), element.branches, element.parts);
     }
 
     return [];
@@ -56,8 +57,11 @@ export class BranchGroupNode extends vscode.TreeItem {
 }
 
 export class BranchItemNode extends vscode.TreeItem {
-  constructor(readonly branch: GitBranch, label = branch.name, nested = false) {
+  readonly repoRoot: string;
+
+  constructor(readonly repository: GitService, readonly branch: GitBranch, label = branch.name, nested = false) {
     super(branch.current ? `${label}  \u2713` : label, vscode.TreeItemCollapsibleState.None);
+    this.repoRoot = repository.root;
     this.description = branch.upstream ?? branch.hash;
     this.tooltip = branch.subject ? `${branch.name}: ${branch.subject}` : branch.name;
     this.contextValue = branch.remote ? 'remoteBranch' : 'branch';
@@ -71,14 +75,17 @@ export class BranchItemNode extends vscode.TreeItem {
 }
 
 export class BranchFolderNode extends vscode.TreeItem {
-  constructor(readonly name: string, readonly parts: string[], readonly branches: GitBranch[]) {
+  readonly repoRoot: string;
+
+  constructor(readonly repository: GitService, readonly name: string, readonly parts: string[], readonly branches: GitBranch[]) {
     super(`${name} (${branches.length})`, vscode.TreeItemCollapsibleState.Expanded);
+    this.repoRoot = repository.root;
     this.contextValue = 'branchFolder';
     this.iconPath = new vscode.ThemeIcon('folder');
   }
 }
 
-function branchFolderChildren(branches: GitBranch[], parentParts: string[]): BranchNode[] {
+function branchFolderChildren(git: GitService, branches: GitBranch[], parentParts: string[]): BranchNode[] {
   const folders = new Map<string, GitBranch[]>();
   const leaves: GitBranch[] = [];
   const depth = parentParts.length;
@@ -99,10 +106,10 @@ function branchFolderChildren(branches: GitBranch[], parentParts: string[]): Bra
   return [
     ...Array.from(folders.entries())
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([name, folderBranches]) => new BranchFolderNode(name, [...parentParts, name], folderBranches)),
+      .map(([name, folderBranches]) => new BranchFolderNode(git, name, [...parentParts, name], folderBranches)),
     ...leaves
       .sort((left, right) => left.name.localeCompare(right.name))
-      .map((branch) => new BranchItemNode(branch, branchLabel(branch, depth), depth > 0))
+      .map((branch) => new BranchItemNode(git, branch, branchLabel(branch, depth), depth > 0))
   ];
 }
 

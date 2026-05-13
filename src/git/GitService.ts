@@ -1,4 +1,6 @@
 import * as path from 'path';
+import { promises as fs } from 'fs';
+import type { Dirent } from 'fs';
 import * as vscode from 'vscode';
 import { GitRepository } from './GitRepository';
 import { runGit } from './GitRunner';
@@ -44,17 +46,22 @@ export class GitService extends GitRepository {
     const roots = new Set<string>();
 
     for (const folder of folders) {
-      try {
-        const root = (await runGit(folder.uri.fsPath, ['rev-parse', '--show-toplevel'])).trim();
-        if (root) {
-          roots.add(root);
+      const candidates = [folder.uri.fsPath, ...(await gitRootCandidates(folder.uri.fsPath))];
+      for (const candidate of candidates) {
+        try {
+          const root = (await runGit(candidate, ['rev-parse', '--show-toplevel'])).trim();
+          if (root) {
+            roots.add(root);
+          }
+        } catch {
+          // Try the next candidate.
         }
-      } catch {
-        // Try the next workspace folder.
       }
     }
 
-    return Array.from(roots).map((root) => new GitService(root));
+    return Array.from(roots)
+      .sort((left, right) => left.localeCompare(right))
+      .map((root) => new GitService(root));
   }
 
   get rootUri(): vscode.Uri {
@@ -64,4 +71,44 @@ export class GitService extends GitRepository {
   toWorkspaceUri(filePath: string): vscode.Uri {
     return vscode.Uri.file(this.toWorkspacePath(filePath));
   }
+}
+
+const ignoredRepositoryScanDirectories = new Set([
+  '.git',
+  '.hg',
+  '.svn',
+  '.vscode-test',
+  '.yarn',
+  'dist',
+  'node_modules',
+  'out'
+]);
+
+async function gitRootCandidates(workspaceRoot: string): Promise<string[]> {
+  const roots = new Set<string>();
+
+  async function visit(directory: string): Promise<void> {
+    let entries: Dirent[];
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    if (entries.some((entry) => entry.name === '.git')) {
+      roots.add(directory);
+      return;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory() || ignoredRepositoryScanDirectories.has(entry.name)) {
+        continue;
+      }
+
+      await visit(path.join(directory, entry.name));
+    }
+  }
+
+  await visit(workspaceRoot);
+  return Array.from(roots);
 }

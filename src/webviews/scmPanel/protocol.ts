@@ -5,6 +5,7 @@ export type ToolWindowMode = 'log' | 'outgoing' | 'incoming' | 'files' | 'change
 export type ScmPanelMessage =
   | { type: 'ready' }
   | { type: 'refresh' }
+  | { type: 'setRepository'; repoRoot: string }
   | { type: 'resetLayout' }
   | { type: 'setMode'; mode: ToolWindowMode }
   | { type: 'selectBranch'; branch: string }

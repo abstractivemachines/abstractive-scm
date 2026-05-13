@@ -40,6 +40,7 @@ ${panelStyles}
         <div class="error" id="error"></div>
       </div>
       <div class="toolbar-actions">
+        <select id="repositorySelect" class="repository-select" aria-label="Repository"></select>
         <button class="icon-button" id="checkoutBranch" title="Checkout selected branch (b)" aria-label="Checkout selected branch">${icon('git-branch', 'Checkout selected branch')}</button>
         <button class="icon-button" id="branchActions" title="Show branch actions" aria-label="Show branch actions">${icon('git-branch', 'Show branch actions')}</button>
         <button class="icon-button" id="copyHash" title="Copy selected commit hash (y)" aria-label="Copy selected commit hash">${icon('copy', 'Copy selected commit hash')}</button>

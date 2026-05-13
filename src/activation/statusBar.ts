@@ -2,7 +2,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { GitChange } from '../models';
 
-export function statusBarText(changes: GitChange[], ahead: number, behind: number): string {
+export function statusBarText(changes: GitChange[], ahead: number, behind: number, repoName = 'SCM'): string {
   const conflicts = changes.filter((change) => change.bucket === 'conflicts').length;
   const state = [
     conflicts ? `!${conflicts}` : '',
@@ -10,7 +10,7 @@ export function statusBarText(changes: GitChange[], ahead: number, behind: numbe
     ahead ? `↑${ahead}` : '',
     behind ? `↓${behind}` : ''
   ].filter(Boolean).join(' ');
-  return `$(window) SCM${state ? ` ${state}` : ''}`;
+  return `$(window) ${repoName}${state ? ` ${state}` : ''}`;
 }
 
 export function statusBarTooltip(repoRoot: string, branch: string, changes: GitChange[], ahead: number, behind: number): vscode.MarkdownString {

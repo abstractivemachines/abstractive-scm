@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 
 export const abstractiveScmCommandIds = [
   'abstractiveScm.refresh',
+  'abstractiveScm.refreshAll',
+  'abstractiveScm.fetchAll',
+  'abstractiveScm.switchRepository',
   'abstractiveScm.toggleTreeView',
   'abstractiveScm.stage',
   'abstractiveScm.stageGroup',
@@ -44,5 +47,24 @@ export function registerNoRepositoryCommands(context: vscode.ExtensionContext): 
 
   for (const command of abstractiveScmCommandIds) {
     context.subscriptions.push(vscode.commands.registerCommand(command, showMessage));
+  }
+}
+
+export function registerNoRepositoryViews(context: vscode.ExtensionContext): void {
+  const provider = new NoRepositoryProvider();
+  for (const view of ['changes', 'branches', 'log', 'stashes']) {
+    context.subscriptions.push(vscode.window.registerTreeDataProvider(`abstractiveScm.${view}`, provider));
+  }
+}
+
+class NoRepositoryProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+  getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
+    return element;
+  }
+
+  getChildren(): vscode.ProviderResult<vscode.TreeItem[]> {
+    const item = new vscode.TreeItem('Abstractive SCM needs an open Git repository.', vscode.TreeItemCollapsibleState.None);
+    item.iconPath = new vscode.ThemeIcon('info');
+    return [item];
   }
 }

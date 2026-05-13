@@ -15,6 +15,9 @@
   "activationEvents": [
     "onStartupFinished",
     "onCommand:abstractiveScm.refresh",
+    "onCommand:abstractiveScm.refreshAll",
+    "onCommand:abstractiveScm.fetchAll",
+    "onCommand:abstractiveScm.switchRepository",
     "onCommand:abstractiveScm.toggleTreeView",
     "onCommand:abstractiveScm.openToolWindow",
     "onView:abstractiveScm.changes",
@@ -31,6 +34,24 @@
         "title": "Refresh",
         "category": "Abstractive SCM",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "abstractiveScm.refreshAll",
+        "title": "Refresh All Repositories",
+        "category": "Abstractive SCM",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "abstractiveScm.fetchAll",
+        "title": "Fetch All Repositories",
+        "category": "Abstractive SCM",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "abstractiveScm.switchRepository",
+        "title": "Switch Repository...",
+        "category": "Abstractive SCM",
+        "icon": "$(repo)"
       },
       {
         "command": "abstractiveScm.toggleTreeView",
@@ -327,6 +348,16 @@
           "command": "abstractiveScm.refresh",
           "when": "view == abstractiveScm.changes || view == abstractiveScm.branches || view == abstractiveScm.log || view == abstractiveScm.stashes",
           "group": "navigation@1"
+        },
+        {
+          "command": "abstractiveScm.switchRepository",
+          "when": "view == abstractiveScm.changes || view == abstractiveScm.branches || view == abstractiveScm.log || view == abstractiveScm.stashes",
+          "group": "navigation@1.01"
+        },
+        {
+          "command": "abstractiveScm.fetchAll",
+          "when": "view == abstractiveScm.changes",
+          "group": "navigation@1.02"
         },
         {
           "command": "abstractiveScm.toggleTreeView",

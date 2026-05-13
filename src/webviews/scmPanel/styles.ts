@@ -103,6 +103,15 @@ export const panelStyles = String.raw`
       flex: 0 0 auto;
       white-space: nowrap;
     }
+    .repository-select {
+      height: 24px;
+      max-width: 220px;
+      min-width: 132px;
+      color: var(--vscode-dropdown-foreground);
+      background: var(--vscode-dropdown-background);
+      border: 1px solid var(--vscode-dropdown-border);
+      border-radius: 4px;
+    }
     .toolbar-actions {
       min-width: 0;
       display: flex;

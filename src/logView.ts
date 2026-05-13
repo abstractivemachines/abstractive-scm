@@ -6,7 +6,7 @@ export class LogProvider implements vscode.TreeDataProvider<CommitNode> {
   private readonly onDidChangeTreeDataEmitter = new vscode.EventEmitter<CommitNode | undefined>();
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
-  constructor(private readonly git: GitService) {}
+  constructor(private readonly git: () => GitService) {}
 
   refresh(): void {
     this.onDidChangeTreeDataEmitter.fire(undefined);
@@ -18,15 +18,19 @@ export class LogProvider implements vscode.TreeDataProvider<CommitNode> {
 
   async getChildren(): Promise<CommitNode[]> {
     const limit = vscode.workspace.getConfiguration('abstractiveScm').get<number>('maxLogEntries', 75);
-    const commits = await this.git.log(limit);
-    return commits.map((commit) => new CommitNode(commit));
+    const git = this.git();
+    const commits = await git.log(limit);
+    return commits.map((commit) => new CommitNode(git, { ...commit, repoRoot: git.root }));
   }
 }
 
 export class CommitNode extends vscode.TreeItem {
-  constructor(readonly commit: GitCommit) {
+  readonly repoRoot: string;
+
+  constructor(readonly repository: GitService, readonly commit: GitCommit) {
     const refs = compactRefs(commit.refs);
     super(`${commit.shortHash} ${commit.subject}${refs ? `  ${refs}` : ''}`, vscode.TreeItemCollapsibleState.None);
+    this.repoRoot = repository.root;
     this.description = `${commit.author}  ${formatShortDate(commit.date)}`;
     this.tooltip = [
       commit.hash,

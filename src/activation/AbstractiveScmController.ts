@@ -8,7 +8,7 @@ import { BranchItemNode, BranchesProvider } from '../branchesView';
 import { ChangeNodeType, ChangelistNode, ChangeGroupNode, ChangeItemNode, ChangesProvider } from '../changesView';
 import { ChangelistManager, defaultChangelistName } from '../changelists';
 import { showBranchComparison } from '../compareView';
-import { GitError, GitService } from '../git';
+import { GitError, GitService, RepositoryManager } from '../git';
 import { GitContentProvider, gitContentScheme, gitContentUri } from '../gitContentProvider';
 import { GitToolWindowProvider } from '../webviews/scmPanel/ScmPanelProvider';
 import { CommitNode, LogProvider, showCommitDetails, showLogWebview } from '../logView';
@@ -32,8 +32,8 @@ const changeBucketTitles: Record<ChangeBucket, string> = {
 };
 
 export class AbstractiveScmController implements vscode.Disposable, RepositoryCommandController {
-  private readonly scm: AbstractiveScmProvider | undefined;
-  private readonly changelists: ChangelistManager;
+  private readonly scmProviders = new Map<string, AbstractiveScmProvider>();
+  private readonly changelistManagers = new Map<string, ChangelistManager>();
   private readonly changes: ChangesProvider;
   private readonly changesTree: vscode.TreeView<ChangeNodeType>;
   private readonly branches: BranchesProvider;
@@ -41,30 +41,47 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   private readonly stashes: StashesProvider;
   private readonly toolWindow: GitToolWindowProvider;
   private readonly statusBar: vscode.StatusBarItem;
-  private readonly repositoryState: RepositoryStateService;
+  private repositoryState: RepositoryStateService;
   private readonly logOutput = new ExtensionLog();
   private readonly disposables: vscode.Disposable[] = [];
   private refreshGeneration = 0;
 
-  constructor(private readonly context: vscode.ExtensionContext, private readonly git: GitService) {
+  private get git(): GitService {
+    return this.repositories.activeRepository;
+  }
+
+  private get scm(): AbstractiveScmProvider | undefined {
+    return this.scmProviders.get(this.git.root);
+  }
+
+  private get activeChangelists(): ChangelistManager {
+    return this.changelistsFor(this.git);
+  }
+
+  constructor(private readonly context: vscode.ExtensionContext, private readonly repositories: RepositoryManager) {
     const config = vscode.workspace.getConfiguration('abstractiveScm');
-    this.scm = config.get<boolean>('enableSourceControlProvider', false) ? new AbstractiveScmProvider(git) : undefined;
-    this.changelists = new ChangelistManager(context.workspaceState);
+    if (config.get<boolean>('enableSourceControlProvider', false)) {
+      for (const repository of repositories.repositories) {
+        const scm = new AbstractiveScmProvider(repository);
+        this.scmProviders.set(repository.root, scm);
+      }
+    }
     const sidePanelTreeView = context.workspaceState.get<boolean>(sidePanelTreeViewKey, false);
-    this.changes = new ChangesProvider(git, this.changelists, sidePanelTreeView);
+    this.changes = new ChangesProvider(repositories, (repository) => this.changelistsFor(repository), sidePanelTreeView);
     this.changesTree = vscode.window.createTreeView('abstractiveScm.changes', { treeDataProvider: this.changes });
-    this.branches = new BranchesProvider(git, sidePanelTreeView);
-    this.log = new LogProvider(git);
-    this.stashes = new StashesProvider(git);
-    this.toolWindow = new GitToolWindowProvider(context, git);
-    this.repositoryState = new RepositoryStateService(git);
+    this.branches = new BranchesProvider(() => this.git, sidePanelTreeView);
+    this.log = new LogProvider(() => this.git);
+    this.stashes = new StashesProvider(() => this.git);
+    this.toolWindow = new GitToolWindowProvider(context, repositories);
+    this.repositoryState = new RepositoryStateService(this.git);
     this.statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     this.statusBar.command = 'abstractiveScm.openToolWindow';
 
     this.disposables.push(
+      repositories,
       this.statusBar,
       this.logOutput,
-      vscode.workspace.registerTextDocumentContentProvider(gitContentScheme, new GitContentProvider(git)),
+      vscode.workspace.registerTextDocumentContentProvider(gitContentScheme, new GitContentProvider(repositories)),
       this.changesTree,
       vscode.window.registerTreeDataProvider('abstractiveScm.branches', this.branches),
       vscode.window.registerTreeDataProvider('abstractiveScm.log', this.log),
@@ -73,19 +90,26 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
       ...registerRepositoryCommands(this)
     );
 
-    if (this.scm) {
-      this.disposables.push(this.scm);
+    for (const scm of this.scmProviders.values()) {
+      this.disposables.push(scm);
     }
 
     if (vscode.workspace.getConfiguration('abstractiveScm').get<boolean>('autoRefresh', true)) {
-      this.disposables.push(new RefreshCoordinator(git.root, () => this.refresh()));
+      for (const repository of repositories.repositories) {
+        this.disposables.push(new RefreshCoordinator(repository.root, () => this.refresh()));
+      }
     }
+
+    this.disposables.push(repositories.onDidChangeActiveRepository(() => {
+      this.repositoryState = new RepositoryStateService(this.git);
+      void this.refresh();
+    }));
   }
 
   async refresh(): Promise<void> {
     const generation = ++this.refreshGeneration;
     await this.handleGitErrors(async () => {
-      await this.scm?.refresh();
+      await Promise.all(Array.from(this.scmProviders.values()).map((provider) => provider.refresh()));
       this.changes.refresh();
       this.branches.refresh();
       this.log.refresh();
@@ -98,19 +122,84 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
       }
       const branch = state.branchStatus;
       const changes = state.changes;
-      this.changesTree.badge = changes.length
-        ? { value: changes.length, tooltip: `${changes.length} local change${changes.length === 1 ? '' : 's'}` }
+      const workspaceChangeCount = await this.workspaceChangeCount();
+      this.changesTree.badge = workspaceChangeCount
+        ? { value: workspaceChangeCount, tooltip: `${workspaceChangeCount} local change${workspaceChangeCount === 1 ? '' : 's'} across workspace repositories` }
         : undefined;
-      this.statusBar.text = statusBarText(changes, branch.ahead, branch.behind);
+      this.statusBar.text = statusBarText(changes, branch.ahead, branch.behind, path.basename(this.git.root));
       this.statusBar.tooltip = statusBarTooltip(this.git.root, branch.branch, changes, branch.ahead, branch.behind);
       this.statusBar.show();
     });
+  }
+
+  async refreshAll(): Promise<void> {
+    await this.refresh();
+  }
+
+  async fetchAll(): Promise<void> {
+    await this.handleGitErrors(async () => {
+      const failures: string[] = [];
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title: 'Abstractive SCM: Fetch all repositories' },
+        async () => {
+          for (const repository of this.repositories.repositories) {
+            try {
+              await repository.fetch();
+            } catch (error) {
+              failures.push(`${path.basename(repository.root)}: ${error instanceof Error ? error.message : String(error)}`);
+            }
+          }
+        }
+      );
+      await this.refresh();
+      if (failures.length > 0) {
+        vscode.window.showErrorMessage(`Fetch failed for ${failures.length} repositor${failures.length === 1 ? 'y' : 'ies'}. See Abstractive SCM log.`);
+        failures.forEach((failure) => this.logOutput.error(failure));
+      } else {
+        vscode.window.showInformationMessage(`Fetched ${this.repositories.repositories.length} repositor${this.repositories.repositories.length === 1 ? 'y' : 'ies'}.`);
+      }
+    });
+  }
+
+  async switchRepository(): Promise<void> {
+    const repository = await this.repositories.switchRepository();
+    if (repository) {
+      vscode.window.showInformationMessage(`Abstractive SCM active repository: ${path.basename(repository.root)}`);
+      await this.refresh();
+    }
   }
 
   dispose(): void {
     for (const disposable of this.disposables) {
       disposable.dispose();
     }
+  }
+
+  private async activateRepository(arg?: unknown): Promise<GitService> {
+    return this.repositories.resolveRepository(arg);
+  }
+
+  private changelistsFor(repository: GitService): ChangelistManager {
+    const existing = this.changelistManagers.get(repository.root);
+    if (existing) {
+      return existing;
+    }
+
+    const scope = this.repositories.hasMultipleRepositories ? repository.root : undefined;
+    const manager = new ChangelistManager(this.context.workspaceState, scope);
+    this.changelistManagers.set(repository.root, manager);
+    return manager;
+  }
+
+  private async workspaceChangeCount(): Promise<number> {
+    const counts = await Promise.all(this.repositories.repositories.map(async (repository) => {
+      try {
+        return (await repository.status()).length;
+      } catch {
+        return 0;
+      }
+    }));
+    return counts.reduce((total, count) => total + count, 0);
   }
 
   async toggleTreeView(): Promise<void> {
@@ -122,22 +211,27 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async stage(arg?: ChangeArgument): Promise<void> {
+    await this.activateRepository(arg);
     await this.withChange(arg, (change) => this.git.stage(change.filePath));
   }
 
   async stageAll(): Promise<void> {
+    await this.activateRepository();
     await this.runAndRefresh('Stage all', () => this.git.stageAll());
   }
 
   async unstage(arg?: ChangeArgument): Promise<void> {
+    await this.activateRepository(arg);
     await this.withChange(arg, (change) => this.git.unstage(change.filePath));
   }
 
   async unstageAll(): Promise<void> {
+    await this.activateRepository();
     await this.runAndRefresh('Unstage all', () => this.git.unstageAll());
   }
 
   async fetch(): Promise<void> {
+    await this.activateRepository();
     await this.runAndRefresh('Fetch', () => this.git.fetch());
   }
 
@@ -146,10 +240,12 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async showLog(): Promise<void> {
+    await this.activateRepository();
     await showLogWebview(this.context, this.git);
   }
 
   async showCommitDetails(node: CommitNode): Promise<void> {
+    await this.activateRepository(node);
     await showCommitDetails(node.commit);
   }
 
@@ -164,6 +260,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async stageGroup(arg?: ChangeGroupArgument): Promise<void> {
+    await this.activateRepository(arg);
     if (!arg || arg.changes.length === 0) {
       vscode.window.showWarningMessage('Choose a change group first.');
       return;
@@ -177,6 +274,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async unstageGroup(arg?: ChangeGroupArgument): Promise<void> {
+    await this.activateRepository(arg);
     if (!arg || arg.changes.length === 0) {
       vscode.window.showWarningMessage('Choose a change group first.');
       return;
@@ -190,6 +288,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async rollback(arg?: ChangeArgument): Promise<void> {
+    await this.activateRepository(arg);
     const change = this.changeFromArgument(arg);
     if (!change) {
       vscode.window.showWarningMessage('Choose a changed file first.');
@@ -214,6 +313,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async commit(amend: boolean): Promise<void> {
+    await this.activateRepository();
     const existing = this.scm?.sourceControl.inputBox.value.trim() ?? '';
     const message =
       existing ||
@@ -236,6 +336,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async checkoutBranch(node?: BranchItemNode): Promise<void> {
+    await this.activateRepository(node);
     let branch = node?.branch.name;
     let remote = node?.branch.remote ?? false;
     if (!branch) {
@@ -265,6 +366,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async createBranch(): Promise<void> {
+    await this.activateRepository();
     const branch = await vscode.window.showInputBox({
       title: 'New Branch',
       prompt: 'Branch name',
@@ -279,6 +381,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async pullRebase(): Promise<void> {
+    await this.activateRepository();
     await this.runAndRefresh('Pull with rebase', async () => {
       await assertNoUnresolvedConflicts(this.git, 'pulling with rebase');
       await this.git.pullRebase();
@@ -286,6 +389,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async push(): Promise<void> {
+    await this.activateRepository();
     await this.runAndRefresh('Push', async () => {
       await assertPushReady(this.git);
       await this.git.push();
@@ -293,6 +397,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async deleteBranch(node?: BranchItemNode): Promise<void> {
+    await this.activateRepository(node);
     let branch = node?.branch.name;
     if (!branch) {
       const branches = (await this.git.branches()).filter((item) => !item.current && !item.remote);
@@ -316,6 +421,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async compareWithBranch(node?: BranchItemNode): Promise<void> {
+    await this.activateRepository(node);
     let branch = node?.branch.name;
     if (!branch) {
       const branches = (await this.git.branches()).filter((item) => !item.current);
@@ -339,6 +445,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async stashChanges(): Promise<void> {
+    await this.activateRepository();
     const changes = await this.git.status();
     if (changes.length === 0) {
       vscode.window.showInformationMessage('There are no local changes to shelve.');
@@ -370,6 +477,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async applyStash(node: StashNode | undefined, removeAfterApply: boolean): Promise<void> {
+    await this.activateRepository(node);
     const stash = await this.pickStash(node);
     if (!stash) {
       return;
@@ -381,6 +489,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async dropStash(node?: StashNode): Promise<void> {
+    await this.activateRepository(node);
     const stash = await this.pickStash(node);
     if (!stash) {
       return;
@@ -410,10 +519,11 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
       { title: 'Shelves', placeHolder: 'Select a shelf' }
     );
 
-    return pick ? new StashNode(pick.stash) : undefined;
+    return pick ? new StashNode(this.git, { ...pick.stash, repoRoot: this.git.root }) : undefined;
   }
 
   async showCommitFiles(node?: CommitNode): Promise<void> {
+    await this.activateRepository(node);
     const commit = node?.commit ?? (await this.pickCommit('Show Changed Files'));
     if (!commit) {
       return;
@@ -443,6 +553,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async copyCommitHash(node?: CommitNode): Promise<void> {
+    await this.activateRepository(node);
     const commit = node?.commit ?? (await this.pickCommit('Copy Commit Hash'));
     if (!commit) {
       return;
@@ -453,6 +564,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async showFileHistory(arg?: ChangeArgument | vscode.Uri): Promise<void> {
+    await this.activateRepository(arg);
     const filePath = this.filePathFromArgument(arg);
     if (!filePath) {
       vscode.window.showWarningMessage('Choose a file inside the Git repository first.');
@@ -465,6 +577,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   }
 
   async createChangelist(): Promise<void> {
+    await this.activateRepository();
     const name = await vscode.window.showInputBox({
       title: 'New Changelist',
       prompt: 'Changelist name',
@@ -477,7 +590,7 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
         if (trimmed === defaultChangelistName) {
           return 'Default already exists';
         }
-        if (this.changelists.names.includes(trimmed)) {
+        if (this.activeChangelists.names.includes(trimmed)) {
           return 'Changelist already exists';
         }
         return undefined;
@@ -488,11 +601,12 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
       return;
     }
 
-    await this.changelists.create(name.trim());
+    await this.activeChangelists.create(name.trim());
     this.changes.refresh();
   }
 
   async moveToChangelist(arg?: ChangeArgument): Promise<void> {
+    await this.activateRepository(arg);
     const change = this.changeFromArgument(arg);
     if (!change) {
       vscode.window.showWarningMessage('Choose a changed file first.');
@@ -502,9 +616,9 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
     const createNew = '__create_new__';
     const pick = await vscode.window.showQuickPick(
       [
-        ...this.changelists.names.map((name) => ({
+        ...this.activeChangelists.names.map((name) => ({
           label: name,
-          description: name === this.changelists.changelistFor(change.filePath) ? 'current' : undefined,
+          description: name === this.activeChangelists.changelistFor(change.filePath) ? 'current' : undefined,
           name
         })),
         { label: 'New Changelist...', description: undefined, name: createNew }
@@ -530,15 +644,16 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
       target = name.trim();
     }
 
-    await this.changelists.assign(change.filePath, target);
+    await this.activeChangelists.assign(change.filePath, target);
     this.changes.refresh();
   }
 
   async deleteChangelist(arg?: ChangelistArgument): Promise<void> {
+    await this.activateRepository(arg);
     let name = arg?.name;
     if (!name) {
       const pick = await vscode.window.showQuickPick(
-        this.changelists.names
+        this.activeChangelists.names
           .filter((item) => item !== defaultChangelistName)
           .map((item) => ({ label: item, name: item })),
         { title: 'Delete Changelist', placeHolder: 'Select a changelist' }
@@ -559,11 +674,12 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
       return;
     }
 
-    await this.changelists.delete(name);
+    await this.activeChangelists.delete(name);
     this.changes.refresh();
   }
 
   async openDiff(arg?: ChangeArgument): Promise<void> {
+    await this.activateRepository(arg);
     const change = this.changeFromArgument(arg);
     if (!change) {
       vscode.window.showWarningMessage('Choose a changed file first.');
@@ -571,16 +687,17 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
     }
 
     const title = `${path.basename(change.filePath)} (${changeBucketTitles[change.bucket]})`;
-    const right = change.bucket === 'staged' ? gitContentUri('index', change.filePath) : this.git.toWorkspaceUri(change.filePath);
+    const right = change.bucket === 'staged' ? gitContentUri('index', change.filePath, this.git.root) : this.git.toWorkspaceUri(change.filePath);
     const left =
       change.bucket === 'untracked' || change.x === 'A'
-        ? gitContentUri('empty', change.filePath)
-        : gitContentUri('HEAD', change.originalPath ?? change.filePath);
+        ? gitContentUri('empty', change.filePath, this.git.root)
+        : gitContentUri('HEAD', change.originalPath ?? change.filePath, this.git.root);
 
     await vscode.commands.executeCommand('vscode.diff', left, right, title);
   }
 
   async openFile(arg?: ChangeArgument): Promise<void> {
+    await this.activateRepository(arg);
     const change = this.changeFromArgument(arg);
     if (!change) {
       vscode.window.showWarningMessage('Choose a changed file first.');
@@ -612,8 +729,8 @@ export class AbstractiveScmController implements vscode.Disposable, RepositoryCo
   private async openCommitFileDiff(commit: GitCommit, file: GitCommitFile): Promise<void> {
     const parentRef = `${commit.hash}^`;
     const leftPath = file.originalPath ?? file.filePath;
-    const left = file.status.startsWith('A') ? gitContentUri('empty', file.filePath) : gitContentUri(parentRef, leftPath);
-    const right = file.status.startsWith('D') ? gitContentUri('empty', file.filePath) : gitContentUri(commit.hash, file.filePath);
+    const left = file.status.startsWith('A') ? gitContentUri('empty', file.filePath, this.git.root) : gitContentUri(parentRef, leftPath, this.git.root);
+    const right = file.status.startsWith('D') ? gitContentUri('empty', file.filePath, this.git.root) : gitContentUri(commit.hash, file.filePath, this.git.root);
     await vscode.commands.executeCommand('vscode.diff', left, right, `${file.filePath} (${commit.shortHash})`);
   }
 

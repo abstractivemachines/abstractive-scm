@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { GitService } from '../../git';
+import { GitService, RepositoryManager } from '../../git';
 import { gitContentUri } from '../../gitContentProvider';
 import { changeLabel, GitChange, GitCommit, GitCommitFile } from '../../models';
 import { renderHtml } from './renderHtml';
@@ -24,7 +24,17 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
   private historyFilePath = '';
   private loadGeneration = 0;
 
-  constructor(private readonly context: vscode.ExtensionContext, private readonly git: GitService) {}
+  constructor(private readonly context: vscode.ExtensionContext, private readonly repositories: RepositoryManager) {
+    this.context.subscriptions.push(this.repositories.onDidChangeActiveRepository(() => {
+      this.selectedBranch = undefined;
+      this.historyFilePath = '';
+      void this.loadInitial();
+    }));
+  }
+
+  private get git(): GitService {
+    return this.repositories.activeRepository;
+  }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
@@ -55,6 +65,9 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       case 'ready':
       case 'refresh':
         await this.loadInitial();
+        break;
+      case 'setRepository':
+        await this.setRepository(message.repoRoot);
         break;
       case 'resetLayout':
         this.post({ type: 'resetLayout' });
@@ -169,6 +182,11 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
         type: 'init',
         repoName: path.basename(this.git.root),
         repoRoot: this.git.root,
+        repositories: this.repositories.repositories.map((repository) => ({
+          name: path.basename(repository.root),
+          root: repository.root,
+          active: repository.root === this.git.root
+        })),
         showRepoContext: (vscode.workspace.workspaceFolders?.length ?? 0) > 1,
         branches,
         currentBranch,
@@ -178,6 +196,18 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       });
       await this.loadBranchModeData(selectedBranch);
     });
+  }
+
+  private async setRepository(repoRoot: string): Promise<void> {
+    const repository = this.repositories.repositoryForRoot(repoRoot);
+    if (!repository) {
+      return;
+    }
+
+    this.repositories.setActiveRepository(repository);
+    this.selectedBranch = undefined;
+    this.historyFilePath = '';
+    await this.loadInitial();
   }
 
   private async loadBranch(branch: string): Promise<void> {
@@ -737,7 +767,7 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       }
 
       const commit = await this.git.commitDetails(hash);
-      const uri = gitContentUri(hash, file.filePath);
+      const uri = gitContentUri(hash, file.filePath, this.git.root);
       await vscode.window.showTextDocument(uri, { preview: true });
       this.post({ type: 'notice', message: `Opened ${file.filePath} at ${commit?.shortHash ?? hash.slice(0, 7)}` });
     });
@@ -763,8 +793,8 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
       const commit = await this.git.commitDetails(hash);
       const parentRef = `${hash}^`;
       const leftPath = file.originalPath ?? file.filePath;
-      const left = file.status.startsWith('A') ? gitContentUri('empty', file.filePath) : gitContentUri(parentRef, leftPath);
-      const right = file.status.startsWith('D') ? gitContentUri('empty', file.filePath) : gitContentUri(hash, file.filePath);
+      const left = file.status.startsWith('A') ? gitContentUri('empty', file.filePath, this.git.root) : gitContentUri(parentRef, leftPath, this.git.root);
+      const right = file.status.startsWith('D') ? gitContentUri('empty', file.filePath, this.git.root) : gitContentUri(hash, file.filePath, this.git.root);
       await vscode.commands.executeCommand('vscode.diff', left, right, `${file.filePath} (${commit?.shortHash ?? hash.slice(0, 7)})`);
     });
   }
@@ -772,11 +802,11 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
   private async openLocalChangeDiff(change: GitChange): Promise<void> {
     await this.withErrorBoundary(async () => {
       const title = `${change.filePath} (${changeLabel(change)})`;
-      const right = change.bucket === 'staged' ? gitContentUri('index', change.filePath) : this.git.toWorkspaceUri(change.filePath);
+      const right = change.bucket === 'staged' ? gitContentUri('index', change.filePath, this.git.root) : this.git.toWorkspaceUri(change.filePath);
       const left =
         change.bucket === 'untracked' || change.x === 'A'
-          ? gitContentUri('empty', change.filePath)
-          : gitContentUri('HEAD', change.originalPath ?? change.filePath);
+          ? gitContentUri('empty', change.filePath, this.git.root)
+          : gitContentUri('HEAD', change.originalPath ?? change.filePath, this.git.root);
       await vscode.commands.executeCommand('vscode.diff', left, right, title);
     });
   }
@@ -788,7 +818,7 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
         return;
       }
 
-      await vscode.window.showTextDocument(gitContentUri(this.compareBranch, file.filePath), { preview: true });
+      await vscode.window.showTextDocument(gitContentUri(this.compareBranch, file.filePath, this.git.root), { preview: true });
       this.post({ type: 'notice', message: `Opened ${file.filePath} at ${this.compareBranch}` });
     });
   }
@@ -797,8 +827,8 @@ export class GitToolWindowProvider implements vscode.WebviewViewProvider {
     await this.withErrorBoundary(async () => {
       const baseRef = await this.git.mergeBase(this.compareBaseBranch, this.compareBranch);
       const leftPath = file.originalPath ?? file.filePath;
-      const left = file.status.startsWith('A') ? gitContentUri('empty', file.filePath) : gitContentUri(baseRef, leftPath);
-      const right = file.status.startsWith('D') ? gitContentUri('empty', file.filePath) : gitContentUri(this.compareBranch, file.filePath);
+      const left = file.status.startsWith('A') ? gitContentUri('empty', file.filePath, this.git.root) : gitContentUri(baseRef, leftPath, this.git.root);
+      const right = file.status.startsWith('D') ? gitContentUri('empty', file.filePath, this.git.root) : gitContentUri(this.compareBranch, file.filePath, this.git.root);
       await vscode.commands.executeCommand('vscode.diff', left, right, `${file.filePath} (${this.compareBaseBranch}...${this.compareBranch})`);
     });
   }

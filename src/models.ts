@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 export type ChangeBucket = 'staged' | 'unstaged' | 'untracked' | 'conflicts';
 
 export interface GitChange {
+  repoRoot?: string;
   filePath: string;
   originalPath?: string;
   x: string;
@@ -19,6 +20,7 @@ export interface BranchStatus {
 }
 
 export interface GitBranch {
+  repoRoot?: string;
   name: string;
   upstream?: string;
   hash: string;
@@ -28,6 +30,7 @@ export interface GitBranch {
 }
 
 export interface GitCommit {
+  repoRoot?: string;
   hash: string;
   shortHash: string;
   graph?: string;
@@ -43,6 +46,7 @@ export interface GitCommit {
 }
 
 export interface GitStash {
+  repoRoot?: string;
   ref: string;
   shortHash: string;
   age: string;
@@ -50,6 +54,7 @@ export interface GitStash {
 }
 
 export interface BranchComparisonFile {
+  repoRoot?: string;
   status: string;
   filePath: string;
   originalPath?: string;
@@ -71,6 +76,7 @@ export interface BranchComparison {
 }
 
 export interface GitResourceState extends vscode.SourceControlResourceState {
+  repoRoot?: string;
   change: GitChange;
   bucket: ChangeBucket;
 }

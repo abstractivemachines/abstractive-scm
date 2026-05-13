@@ -7,6 +7,7 @@ export const browserScript = String.raw`
     const state = {
       repoName: '',
       repoRoot: '',
+      repositories: [],
       showRepoContext: false,
       branches: [],
       currentBranch: '',
@@ -60,6 +61,7 @@ export const browserScript = String.raw`
     const commitSummaryEl = document.getElementById('commitSummary');
     const toolbarEl = document.querySelector('.toolbar');
     const toolbarStatusEl = document.querySelector('.toolbar-status');
+    const repositorySelectEl = document.getElementById('repositorySelect');
     const branchSearchEl = document.getElementById('branchSearch');
     const commitSearchEl = document.getElementById('commitSearch');
     const fileSearchEl = document.getElementById('fileSearch');
@@ -79,6 +81,9 @@ export const browserScript = String.raw`
     let monacoDisposables = [];
 
     document.getElementById('refresh').addEventListener('click', () => vscode.postMessage({ type: 'refresh' }));
+    repositorySelectEl.addEventListener('change', () => {
+      vscode.postMessage({ type: 'setRepository', repoRoot: repositorySelectEl.value });
+    });
     document.getElementById('checkoutBranch').addEventListener('click', checkoutSelectedBranch);
     document.getElementById('branchActions').addEventListener('click', showSelectedBranchActions);
     document.getElementById('copyHash').addEventListener('click', copySelectedCommitHash);
@@ -129,6 +134,7 @@ export const browserScript = String.raw`
         state.branchFilter = button.dataset.branchFilter;
         saveLayoutState();
         renderBranches();
+        updateHeaderButtonStates();
         focusSelected();
       });
     });
@@ -187,6 +193,7 @@ export const browserScript = String.raw`
       if (message.type === 'init') {
         state.repoName = message.repoName || '';
         state.repoRoot = message.repoRoot || '';
+        state.repositories = message.repositories || [];
         state.showRepoContext = Boolean(message.showRepoContext);
         state.branches = message.branches || [];
         state.currentBranch = message.currentBranch || '';
@@ -389,6 +396,7 @@ export const browserScript = String.raw`
     function renderChrome() {
       renderActivePane();
       const title = toolWindowTitle();
+      renderRepositorySelect();
       titleEl.textContent = title;
       titleEl.title = title ? toolWindowTitleTooltip() : '';
       errorEl.textContent = state.error || '';
@@ -420,21 +428,39 @@ export const browserScript = String.raw`
       diffStackEl.classList.toggle('details-hidden', !state.detailsVisible);
       updateDiffViewButton(document.getElementById('toggleDiffView'));
       updateDiffNavigation();
-      document.querySelectorAll('[data-branch-filter]').forEach((button) => {
-        button.classList.toggle('active', button.dataset.branchFilter === state.branchFilter);
-      });
-      document.querySelectorAll('[data-mode]').forEach((button) => {
-        button.classList.toggle('active', button.dataset.mode === state.mode);
-      });
+      updateHeaderButtonStates();
       const historyChip = document.getElementById('historyChip');
       const historyChipLabel = document.getElementById('historyChipLabel');
       const showingHistory = state.mode === 'history' && Boolean(state.historyFilePath);
       historyChip.hidden = !showingHistory;
       historyChip.title = showingHistory ? 'Viewing file history for ' + state.historyFilePath : '';
       historyChipLabel.textContent = showingHistory ? 'History: ' + state.historyFilePath : '';
+    }
+
+    function updateHeaderButtonStates() {
+      document.querySelectorAll('[data-branch-filter]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.branchFilter === state.branchFilter);
+      });
+      document.querySelectorAll('[data-mode]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.mode === state.mode);
+      });
       document.querySelectorAll('[data-file-filter]').forEach((button) => {
         button.classList.toggle('active', button.dataset.fileFilter === state.fileFilter);
       });
+    }
+
+    function renderRepositorySelect() {
+      repositorySelectEl.hidden = state.repositories.length <= 1;
+      if (repositorySelectEl.hidden) {
+        return;
+      }
+
+      const selected = repositorySelectEl.value;
+      repositorySelectEl.innerHTML = state.repositories.map((repository) =>
+        '<option value="' + escapeHtml(repository.root) + '">' + escapeHtml(repository.name) + '</option>'
+      ).join('');
+      repositorySelectEl.value = state.repoRoot || selected;
+      repositorySelectEl.title = state.repoRoot || '';
     }
 
     function updateDiffPlacementButton(button, variant) {
@@ -546,21 +572,29 @@ export const browserScript = String.raw`
         branchesEl.innerHTML = '<div class="empty">No branches match the filter.</div>';
         return;
       }
-      branchesEl.replaceChildren(...branches.map((branch) => {
-        const selected = branch.name === state.selectedBranch;
-        const row = selectableRow('branch-row row' + rowState('branches', selected), 'option', selected);
-        row.title = branch.subject || branch.name;
-        row.innerHTML = '<div class="primary">' + escapeHtml(branch.current ? branch.name + ' *' : branch.name) + '</div>' +
-          '<div class="branch-kind">' + escapeHtml(branch.remote ? 'remote' : 'local') + '</div>';
-        row.addEventListener('focus', () => setActivePane('branches', false));
-        row.addEventListener('click', () => selectBranch(branch.name));
-        row.addEventListener('dblclick', () => checkoutSelectedBranch());
-        row.addEventListener('contextmenu', (event) => {
-          selectBranch(branch.name);
-          showContextMenu(event, 'branch');
-        });
-        return row;
-      }));
+      const localBranches = branches.filter((branch) => !branch.remote);
+      const remoteBranches = branches.filter((branch) => branch.remote);
+      const rows = [
+        ...localBranches.map(renderBranchRow),
+        ...remoteBranches.map(renderBranchRow)
+      ];
+      branchesEl.replaceChildren(...rows);
+    }
+
+    function renderBranchRow(branch) {
+      const selected = branch.name === state.selectedBranch;
+      const row = selectableRow('branch-row row' + rowState('branches', selected), 'option', selected);
+      row.title = branch.subject || branch.name;
+      row.innerHTML = '<div class="primary">' + escapeHtml(branch.current ? branch.name + ' *' : branch.name) + '</div>' +
+        '<div class="branch-kind">' + escapeHtml(branch.remote ? 'remote' : 'local') + '</div>';
+      row.addEventListener('focus', () => setActivePane('branches', false));
+      row.addEventListener('click', () => selectBranch(branch.name));
+      row.addEventListener('dblclick', () => checkoutSelectedBranch());
+      row.addEventListener('contextmenu', (event) => {
+        selectBranch(branch.name);
+        showContextMenu(event, 'branch');
+      });
+      return row;
     }
 
     function renderCommits() {

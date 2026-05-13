@@ -84,12 +84,12 @@ export class AbstractiveScmProvider implements vscode.Disposable {
     const title = `${path.basename(change.filePath)} (${bucketTitles[change.bucket]})`;
     const right =
       change.bucket === 'staged'
-        ? gitContentUri('index', change.filePath)
+        ? gitContentUri('index', change.filePath, this.git.root)
         : this.git.toWorkspaceUri(change.filePath);
 
-    let left = gitContentUri('HEAD', change.originalPath ?? change.filePath);
+    let left = gitContentUri('HEAD', change.originalPath ?? change.filePath, this.git.root);
     if (change.bucket === 'untracked' || change.x === 'A') {
-      left = gitContentUri('empty', change.filePath);
+      left = gitContentUri('empty', change.filePath, this.git.root);
     }
 
     await vscode.commands.executeCommand('vscode.diff', left, right, title);
@@ -105,11 +105,13 @@ export class AbstractiveScmProvider implements vscode.Disposable {
     const resourceUri = this.git.toWorkspaceUri(change.filePath);
     const label = changeLabel(change);
 
-    const commandState = { resourceUri, change, bucket: change.bucket } as GitResourceState;
+    const scopedChange = { ...change, repoRoot: this.git.root };
+    const commandState = { resourceUri, repoRoot: this.git.root, change: scopedChange, bucket: change.bucket } as GitResourceState;
 
     return {
       resourceUri,
-      change,
+      repoRoot: this.git.root,
+      change: scopedChange,
       bucket: change.bucket,
       contextValue: change.bucket,
       command: {
