@@ -1,25 +1,37 @@
 # Abstractive SCM
 
-Abstractive SCM is a VS Code extension scaffold for IntelliJ-inspired Git and SCM workflows.
+> IntelliJ-style Git workflows for VS Code.
 
-The first implementation provides:
+Abstractive SCM is a VS Code extension that brings the parts of JetBrains' Git tool window I missed most — a branch → commit → file → diff navigator, a real DAG commit graph, changelists, and shelves — to VS Code, without copying JetBrains source or assets. It implements the workflow ideas on top of the VS Code extension API and the local `git` CLI.
 
-- A dedicated SCM provider with staged, unstaged, untracked, and conflict groups.
-- A Local Changes view that provides the same grouping without duplicating VS Code's built-in Git repository.
-- Workspace-local changelists for splitting local changes into named work groups.
-- A bottom-panel SCM tool window for branch -> commit -> file -> live diff preview navigation.
-- One-click stage, unstage, rollback, and diff actions.
-- Commit and amend flows with optional sign-off.
-- Fetch, pull with rebase, and push commands.
-- Branch tree with checkout, create, and delete actions.
-- Branch comparison from the branch tree, including unique commits and changed files.
-- Git log tree plus a richer log webview.
-- Commit file inspection with parent-vs-commit diffs.
-- Per-file history from Local Changes or the editor context menu.
-- Shelves view backed by `git stash`, with shelve, unshelve, pop, and delete actions.
-- Status bar branch/ahead/behind/change summary.
+This is a personal project, still pre-release. Issues and feedback welcome.
 
-This project does not copy JetBrains source, icons, or proprietary UI. It implements similar workflow concepts using VS Code extension APIs and the local `git` CLI.
+## What it adds
+
+- **Bottom-panel SCM tool window** — navigate branches, commits, files, and a live side-by-side diff in one pane.
+- **Local Changes view** with workspace-local **changelists** for splitting in-progress work into named groups.
+- **Real DAG commit graph** with lane calculation, merge visualization, and branch/tag refs.
+- **Side-by-side diffs** with word-level highlights, per-file add/delete stats, and collapsible hunks.
+- **Branch tree** with checkout, create, rename, delete, merge, rebase, and branch comparison (unique commits + changed files).
+- **Shelves** backed by `git stash` — shelve, unshelve, pop, delete.
+- **File history** from Local Changes or the editor context menu.
+- **Commit actions** — cherry-pick, revert, create branch/tag from commit, detached checkout with confirmation.
+- **Multi-repo workspaces** — active-repo model, per-repo changelists, fetch all, refresh all.
+- **Status bar** with branch, ahead/behind, and change summary.
+
+## Screenshots
+
+_Coming soon — see the GitHub release for a walkthrough._
+
+## Install
+
+A pre-built `.vsix` is attached to each release. To install from one:
+
+```sh
+code --install-extension abstractive-scm-<version>.vsix
+```
+
+Or build from source — see below.
 
 ## Development
 
@@ -30,4 +42,18 @@ npm test
 npm run verify
 ```
 
-Open this folder in VS Code and run the `Run Extension` launch target, or press `F5`.
+Open this folder in VS Code and run the **Run Extension** launch target, or press `F5`.
+
+To package a `.vsix` locally:
+
+```sh
+npm run package
+```
+
+## Status
+
+Pre-release (`0.1.x`). The core workflow surfaces in [`SCM_PANEL_ROADMAP.md`](./SCM_PANEL_ROADMAP.md) are checked off, and multi-repo support is in. The remaining work is hardening against weirder real-world repos (heavy merge history, renames, deletions, many branches) and broader test coverage.
+
+## License
+
+MIT. See [`LICENSE`](./LICENSE). This project does not copy JetBrains source, icons, or proprietary UI.

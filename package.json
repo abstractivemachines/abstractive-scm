@@ -5,6 +5,25 @@
   "version": "0.1.4",
   "publisher": "local",
   "license": "MIT",
+  "author": "Abstractive Machines",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/abstractivemachines/abstractive-scm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/abstractivemachines/abstractive-scm/issues"
+  },
+  "homepage": "https://github.com/abstractivemachines/abstractive-scm#readme",
+  "keywords": [
+    "git",
+    "scm",
+    "intellij",
+    "diff",
+    "branches",
+    "stash",
+    "changelist",
+    "source control"
+  ],
   "engines": {
     "vscode": "^1.96.0"
   },
