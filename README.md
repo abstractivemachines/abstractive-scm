@@ -1,10 +1,10 @@
 # Abstractive SCM
 
-> IntelliJ-style Git workflows for VS Code.
+> A richer Git workflow panel for VS Code.
 
-Abstractive SCM is a VS Code extension that brings the parts of JetBrains' Git tool window I missed most — a branch → commit → file → diff navigator, a real DAG commit graph, changelists, and shelves — to VS Code, without copying JetBrains source or assets. It implements the workflow ideas on top of the VS Code extension API and the local `git` CLI.
+Abstractive SCM is a VS Code extension that pulls a full Git workflow into one panel: a branch → commit → file → diff navigator, workspace-local changelists, a real DAG commit graph, side-by-side diffs with word-level highlights, and shelves backed by `git stash`. It's built on the VS Code extension API and the local `git` CLI.
 
-This is a personal project, still pre-release. Issues and feedback welcome.
+Personal project, pre-release. Issues and feedback welcome.
 
 ## What it adds
 
@@ -56,4 +56,4 @@ Pre-release (`0.1.x`). The core workflow surfaces in [`SCM_PANEL_ROADMAP.md`](./
 
 ## License
 
-MIT. See [`LICENSE`](./LICENSE). This project does not copy JetBrains source, icons, or proprietary UI.
+MIT. See [`LICENSE`](./LICENSE).

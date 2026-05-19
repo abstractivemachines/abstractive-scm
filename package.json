@@ -1,7 +1,7 @@
 {
   "name": "abstractive-scm",
   "displayName": "Abstractive SCM",
-  "description": "IntelliJ-inspired SCM workflows for VS Code: richer Git changes, branches, log, diffs, and commit actions.",
+  "description": "A richer Git workflow panel for VS Code: changes, branches, log, diffs, changelists, and shelves in one place.",
   "version": "0.1.4",
   "publisher": "local",
   "license": "MIT",
@@ -17,7 +17,6 @@
   "keywords": [
     "git",
     "scm",
-    "intellij",
     "diff",
     "branches",
     "stash",

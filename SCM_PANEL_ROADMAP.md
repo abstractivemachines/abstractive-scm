@@ -18,7 +18,7 @@
 
 ## Better Graph
 
-- [x] Replace the current lightweight graph display with a real IntelliJ-style DAG renderer.
+- [x] Replace the current lightweight graph display with a real DAG renderer.
 - [x] Add proper lane calculation, colors, merge visualization, branch labels, and local/remote refs.
 
 ## Diff Improvements
